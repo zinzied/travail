@@ -30,6 +30,7 @@ from cv_evaluator.core.criteria_loader import criteria_manager
 from cv_evaluator.core.models import EvaluationCriteria
 from cv_evaluator.core.interactive_criteria import InteractiveCriteriaBuilder, CriteriaFromFiles
 from cv_evaluator.core.participant_evaluator import ParticipantEvaluator
+from cv_evaluator.ai.free_models import get_ai_response, list_available_models, auto_select_ai_model
 from cv_evaluator.utils.exceptions import CVEvaluatorError
 
 
@@ -64,7 +65,7 @@ def main():
         # Evaluation mode
         mode = st.radio(
             "Evaluation Mode",
-            ["Single CV", "Batch Processing", "Participant Evaluation", "Create Criteria"],
+            ["Single CV", "Batch Processing", "Participant Evaluation", "Create Criteria", "AI Chat"],
             help="Choose evaluation mode"
         )
         
@@ -84,6 +85,8 @@ def main():
         participant_evaluation_interface(job_template, report_format)
     elif mode == "Create Criteria":
         criteria_creation_interface()
+    elif mode == "AI Chat":
+        ai_chat_interface()
 
 
 def single_cv_interface(job_template: Optional[str], report_format: str):
@@ -728,6 +731,261 @@ def display_participant_evaluation_results(participant_id: str, result, evaluato
 
     # Display standard evaluation results
     display_evaluation_results(result)
+
+
+def ai_chat_interface():
+    """AI chat interface for CV evaluation."""
+    st.header("💬 AI Chat Assistant")
+    st.markdown("Upload a CV and chat with AI about the candidate's qualifications")
+
+    # Initialize session state for chat
+    if 'chat_history' not in st.session_state:
+        st.session_state.chat_history = []
+    if 'current_cv_data' not in st.session_state:
+        st.session_state.current_cv_data = None
+    if 'evaluator' not in st.session_state:
+        st.session_state.evaluator = None
+
+    # Model selection
+    with st.expander("🤖 AI Model Settings"):
+        available_models = list_available_models()
+
+        if not any(available_models.values()):
+            st.warning("⚠️ No AI models are currently available")
+            st.markdown("""
+            **To enable AI chat features, set up one of these free options:**
+
+            1. **Ollama** (Recommended):
+               - Download: https://ollama.ai
+               - Install a model: `ollama pull llama2`
+               - Start server: `ollama serve`
+
+            2. **Hugging Face Transformers**:
+               - Install: `pip install transformers torch`
+               - Models download automatically
+
+            3. **LocalAI or compatible API**:
+               - Set up at http://localhost:8080
+            """)
+        else:
+            # Show available models
+            st.write("**Available Models:**")
+            for model_name, is_available in available_models.items():
+                status = "✅" if is_available else "❌"
+                st.write(f"{status} {model_name}")
+
+            # Auto-select best model
+            if st.button("🔄 Auto-select Best Model"):
+                selected = auto_select_ai_model()
+                if selected:
+                    st.success(f"Selected model: {selected}")
+                    st.rerun()
+                else:
+                    st.error("No models available")
+
+    # CV upload section
+    st.subheader("📄 Upload CV")
+
+    uploaded_file = st.file_uploader(
+        "Choose a CV file",
+        type=['pdf', 'txt'],
+        help="Upload a PDF or text file containing the CV"
+    )
+
+    if uploaded_file is not None:
+        # Process the uploaded CV
+        with st.spinner("Processing CV..."):
+            success = process_uploaded_cv_for_chat(uploaded_file)
+
+            if success:
+                candidate_name = st.session_state.current_cv_data.personal_info.name or 'Unknown candidate'
+                st.success(f"✅ CV processed: {candidate_name}")
+
+                # Show CV summary
+                with st.expander("📋 CV Summary"):
+                    display_cv_summary_for_chat()
+            else:
+                st.error("❌ Failed to process CV")
+
+    # Chat section
+    if st.session_state.current_cv_data:
+        st.subheader("💬 Chat about this CV")
+
+        # Display chat history
+        if st.session_state.chat_history:
+            st.write("**Chat History:**")
+            for i, (question, answer) in enumerate(st.session_state.chat_history):
+                with st.container():
+                    st.write(f"**You:** {question}")
+                    st.write(f"**Assistant:** {answer}")
+                    st.divider()
+
+        # Quick question buttons
+        st.write("**Quick Questions:**")
+        col1, col2, col3 = st.columns(3)
+
+        with col1:
+            if st.button("🎯 Overall Assessment"):
+                ask_question_about_cv("What is your overall assessment of this candidate?")
+
+        with col2:
+            if st.button("💪 Key Strengths"):
+                ask_question_about_cv("What are the key strengths of this candidate?")
+
+        with col3:
+            if st.button("📈 Areas for Improvement"):
+                ask_question_about_cv("What areas should this candidate improve?")
+
+        # Custom question input
+        user_question = st.text_input(
+            "Ask a question about this CV:",
+            placeholder="e.g., Does this candidate have experience with Python?",
+            key="chat_input"
+        )
+
+        col1, col2 = st.columns([1, 4])
+        with col1:
+            if st.button("Send", type="primary"):
+                if user_question.strip():
+                    ask_question_about_cv(user_question)
+                    st.rerun()
+
+        with col2:
+            if st.button("🗑️ Clear Chat"):
+                st.session_state.chat_history = []
+                st.rerun()
+    else:
+        st.info("👆 Please upload a CV to start chatting about the candidate")
+
+
+def process_uploaded_cv_for_chat(uploaded_file) -> bool:
+    """Process uploaded CV file for chat interface."""
+    try:
+        # Save file temporarily
+        with tempfile.NamedTemporaryFile(delete=False, suffix=f".{uploaded_file.name.split('.')[-1]}") as tmp_file:
+            tmp_file.write(uploaded_file.getvalue())
+            tmp_file_path = tmp_file.name
+
+        # Create evaluator and process CV
+        st.session_state.evaluator = CVEvaluator()
+
+        if uploaded_file.name.endswith('.pdf'):
+            # Extract from PDF
+            extraction_result = st.session_state.evaluator.pdf_extractor.extract_text(tmp_file_path)
+            cv_text = extraction_result.get('text', '')
+        else:
+            # Read text file
+            cv_text = Path(tmp_file_path).read_text(encoding='utf-8')
+
+        # Parse CV
+        st.session_state.current_cv_data = st.session_state.evaluator.cv_parser.parse_cv(cv_text)
+
+        # Clear chat history when new CV is uploaded
+        st.session_state.chat_history = []
+
+        # Clean up
+        Path(tmp_file_path).unlink(missing_ok=True)
+
+        return True
+
+    except Exception as e:
+        st.error(f"Error processing CV: {e}")
+        return False
+
+
+def display_cv_summary_for_chat():
+    """Display a summary of the processed CV for chat."""
+    cv_data = st.session_state.current_cv_data
+    if not cv_data:
+        return
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.write("**Personal Information:**")
+        if cv_data.personal_info.name:
+            st.write(f"Name: {cv_data.personal_info.name}")
+        if cv_data.personal_info.email:
+            st.write(f"Email: {cv_data.personal_info.email}")
+
+        st.write(f"**Skills Found:** {len(cv_data.skills)}")
+        if cv_data.skills:
+            skills_preview = ", ".join([skill.name for skill in cv_data.skills[:5]])
+            st.write(f"Top skills: {skills_preview}...")
+
+    with col2:
+        st.write(f"**Work Experience:** {len(cv_data.work_experience)} entries")
+        if cv_data.work_experience:
+            recent_job = cv_data.work_experience[0]
+            st.write(f"Recent: {recent_job.position} at {recent_job.company}")
+
+        st.write(f"**Education:** {len(cv_data.education)} entries")
+        if cv_data.education:
+            recent_edu = cv_data.education[0]
+            st.write(f"Latest: {recent_edu.degree} from {recent_edu.institution}")
+
+
+def ask_question_about_cv(question: str):
+    """Process a user question about the CV."""
+    cv_data = st.session_state.current_cv_data
+    if not cv_data:
+        return
+
+    try:
+        # Get CV context
+        cv_context = get_cv_context_for_chat(cv_data)
+
+        # Create prompt for AI
+        prompt = f"""
+You are a CV evaluation expert. Here's information about a candidate:
+
+{cv_context}
+
+User question: {question}
+
+Please provide a helpful, professional response about this candidate based on the CV information.
+Keep your response concise and focused on the question asked.
+"""
+
+        # Get AI response
+        answer = get_ai_response(prompt, max_tokens=500)
+
+        # Add to chat history
+        st.session_state.chat_history.append((question, answer))
+
+    except Exception as e:
+        error_msg = f"Sorry, I encountered an error: {e}"
+        st.session_state.chat_history.append((question, error_msg))
+
+
+def get_cv_context_for_chat(cv_data) -> str:
+    """Get CV context for AI prompts."""
+    context_parts = []
+
+    # Personal info
+    if cv_data.personal_info.name:
+        context_parts.append(f"Candidate: {cv_data.personal_info.name}")
+
+    # Skills
+    if cv_data.skills:
+        skills = ", ".join([skill.name for skill in cv_data.skills[:10]])
+        context_parts.append(f"Skills: {skills}")
+
+    # Experience
+    if cv_data.work_experience:
+        exp_summary = []
+        for exp in cv_data.work_experience[:3]:
+            exp_summary.append(f"{exp.position} at {exp.company}")
+        context_parts.append(f"Experience: {'; '.join(exp_summary)}")
+
+    # Education
+    if cv_data.education:
+        edu_summary = []
+        for edu in cv_data.education[:2]:
+            edu_summary.append(f"{edu.degree} from {edu.institution}")
+        context_parts.append(f"Education: {'; '.join(edu_summary)}")
+
+    return "\n".join(context_parts)
 
 
 def get_mime_type(format: str) -> str:

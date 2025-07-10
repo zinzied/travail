@@ -310,6 +310,149 @@ def evaluate_participant(
 
 
 @app.command()
+def list_ai_models():
+    """List available AI models for evaluation and chat."""
+
+    from .ai.free_models import list_available_models
+
+    console.print(Panel.fit(
+        "[bold blue]Available AI Models[/bold blue]\n"
+        "Free models for enhanced CV evaluation and chat",
+        title="AI Models"
+    ))
+
+    available_models = list_available_models()
+
+    if not any(available_models.values()):
+        console.print("[yellow]No AI models are currently available.[/yellow]")
+        console.print("\n[bold]To set up free AI models:[/bold]")
+        console.print("1. [cyan]Ollama[/cyan] (Recommended):")
+        console.print("   - Download: https://ollama.ai")
+        console.print("   - Install model: ollama pull llama2")
+        console.print("   - Start server: ollama serve")
+        console.print("\n2. [cyan]Hugging Face Transformers[/cyan]:")
+        console.print("   - Install: pip install transformers torch")
+        console.print("   - Models download automatically")
+        console.print("\n3. [cyan]LocalAI or compatible API[/cyan]:")
+        console.print("   - Set up at http://localhost:8080")
+        return
+
+    # Create table of available models
+    table = Table(title="AI Model Status")
+    table.add_column("Model", style="cyan")
+    table.add_column("Type", style="yellow")
+    table.add_column("Status", justify="center")
+    table.add_column("Description", style="dim")
+
+    model_info = {
+        "ollama_llama2": ("Ollama", "General purpose LLM"),
+        "ollama_codellama": ("Ollama", "Code-focused LLM"),
+        "ollama_mistral": ("Ollama", "Fast and efficient LLM"),
+        "hf_dialogpt": ("Hugging Face", "Conversational AI"),
+        "hf_gpt2": ("Hugging Face", "Text generation"),
+        "localai": ("LocalAI", "OpenAI-compatible API"),
+        "textgen_webui": ("Text Gen WebUI", "Local text generation")
+    }
+
+    for model_name, is_available in available_models.items():
+        model_type, description = model_info.get(model_name, ("Unknown", ""))
+        status = "[green]✓ Available[/green]" if is_available else "[red]✗ Not Available[/red]"
+        table.add_row(model_name, model_type, status, description)
+
+    console.print(table)
+
+
+@app.command()
+def chat(
+    cv_file: str = typer.Argument(..., help="CV file to analyze"),
+    model: Optional[str] = typer.Option(None, "--model", "-m", help="AI model to use"),
+    criteria: str = typer.Option("default", "--criteria", "-c", help="Evaluation criteria")
+):
+    """Interactive chat about a CV using AI models."""
+
+    try:
+        from .ai.free_models import set_ai_model, auto_select_ai_model, get_ai_response
+
+        # Set up AI model
+        if model:
+            if not set_ai_model(model):
+                console.print(f"[red]Failed to set model: {model}[/red]")
+                raise typer.Exit(1)
+        else:
+            selected = auto_select_ai_model()
+            if not selected:
+                console.print("[red]No AI models available. Use 'list-ai-models' to see setup instructions.[/red]")
+                raise typer.Exit(1)
+            console.print(f"[green]Using AI model: {selected}[/green]")
+
+        # Load and process CV
+        console.print(f"[blue]Loading CV:[/blue] {cv_file}")
+
+        evaluation_criteria = criteria_manager.get_criteria(criteria)
+        evaluator = CVEvaluator(evaluation_criteria)
+
+        # Process CV
+        with console.status("Processing CV..."):
+            result = evaluator.evaluate_cv(cv_file)
+
+        if not result:
+            console.print("[red]Failed to process CV[/red]")
+            raise typer.Exit(1)
+
+        # Display CV summary
+        console.print(Panel.fit(
+            f"[bold]Candidate:[/bold] {result.cv_data.personal_info.name or 'Unknown'}\n"
+            f"[bold]Overall Score:[/bold] {result.overall_score:.1f}/100\n"
+            f"[bold]Job Fit:[/bold] {result.fit_percentage:.1f}%",
+            title="CV Summary"
+        ))
+
+        # Start interactive chat
+        console.print("\n[bold green]🤖 AI Chat Assistant Ready![/bold green]")
+        console.print("Ask questions about this CV. Type 'quit' to exit.\n")
+
+        # Prepare CV context
+        cv_context = _prepare_cv_context_for_chat(result.cv_data)
+
+        while True:
+            try:
+                # Get user question
+                question = typer.prompt("\nYour question")
+
+                if question.lower() in ['quit', 'exit', 'q']:
+                    console.print("[yellow]Goodbye![/yellow]")
+                    break
+
+                # Create AI prompt
+                prompt = f"""
+You are a CV evaluation expert. Here's information about a candidate:
+
+{cv_context}
+
+User question: {question}
+
+Please provide a helpful, professional response about this candidate based on the CV information.
+"""
+
+                # Get AI response
+                with console.status("Thinking..."):
+                    response = get_ai_response(prompt, max_tokens=600)
+
+                # Display response
+                console.print(f"\n[bold blue]Assistant:[/bold blue] {response}")
+
+            except KeyboardInterrupt:
+                console.print("\n[yellow]Chat interrupted. Goodbye![/yellow]")
+                break
+            except Exception as e:
+                console.print(f"[red]Error: {e}[/red]")
+
+    except Exception as e:
+        console.print(f"[red]Chat failed:[/red] {e}")
+        raise typer.Exit(1)
+
+
+@app.command()
 def config_info():
     """Display current configuration information."""
 
@@ -451,6 +594,36 @@ def _display_batch_results(results):
     if results['summary_report']:
         console.print(f"\n[green]✓ Summary report:[/green] {results['summary_report']}")
     console.print(f"[green]✓ Output directory:[/green] {results['output_directory']}")
+
+
+def _prepare_cv_context_for_chat(cv_data) -> str:
+    """Prepare CV context for chat interface."""
+    context_parts = []
+
+    # Personal info
+    if cv_data.personal_info.name:
+        context_parts.append(f"Candidate: {cv_data.personal_info.name}")
+
+    # Skills
+    if cv_data.skills:
+        skills = ", ".join([skill.name for skill in cv_data.skills[:10]])
+        context_parts.append(f"Skills: {skills}")
+
+    # Experience
+    if cv_data.work_experience:
+        exp_summary = []
+        for exp in cv_data.work_experience[:3]:
+            exp_summary.append(f"{exp.position} at {exp.company}")
+        context_parts.append(f"Experience: {'; '.join(exp_summary)}")
+
+    # Education
+    if cv_data.education:
+        edu_summary = []
+        for edu in cv_data.education[:2]:
+            edu_summary.append(f"{edu.degree} from {edu.institution}")
+        context_parts.append(f"Education: {'; '.join(edu_summary)}")
+
+    return "\n".join(context_parts)
 
 
 if __name__ == "__main__":

@@ -1,5 +1,8 @@
 """
 Main CV analysis engine using AI and NLP techniques.
+
+Created by: Zied Boughdir (@zinzied)
+GitHub: https://github.com/zinzied/cv-evaluation-system
 """
 
 import logging
@@ -11,6 +14,7 @@ from ..core.models import (
 )
 from .scorer import CVScorer
 from .nlp_processor import NLPProcessor
+from .free_models import get_ai_response, list_available_models, auto_select_ai_model
 from ..utils.exceptions import AnalysisError
 
 logger = logging.getLogger(__name__)
@@ -19,10 +23,23 @@ logger = logging.getLogger(__name__)
 class CVAnalyzer:
     """Main CV analysis engine that coordinates all analysis components."""
     
-    def __init__(self, evaluation_criteria: Optional[EvaluationCriteria] = None):
+    def __init__(self, evaluation_criteria: Optional[EvaluationCriteria] = None, use_ai: bool = True):
         self.evaluation_criteria = evaluation_criteria or self._get_default_criteria()
         self.scorer = CVScorer(self.evaluation_criteria)
         self.nlp_processor = NLPProcessor()
+        self.use_ai = use_ai
+        self.ai_model_available = False
+
+        # Try to initialize AI model if requested
+        if self.use_ai:
+            selected_model = auto_select_ai_model()
+            if selected_model:
+                self.ai_model_available = True
+                logger.info(f"CV Analyzer initialized with AI model: {selected_model}")
+            else:
+                logger.info("CV Analyzer initialized without AI (no models available)")
+        else:
+            logger.info("CV Analyzer initialized without AI (disabled)")
         
     def analyze_cv(self, cv_data: CVData) -> CVAnalysisResult:
         """
@@ -50,6 +67,17 @@ class CVAnalyzer:
             strengths = self._identify_strengths(enhanced_cv_data, section_scores)
             weaknesses = self._identify_weaknesses(enhanced_cv_data, section_scores)
             recommendations = self._generate_recommendations(enhanced_cv_data, weaknesses)
+
+            # Enhance with AI if available
+            if self.ai_model_available:
+                try:
+                    ai_insights = self._get_ai_insights(enhanced_cv_data, section_scores)
+                    if ai_insights:
+                        strengths.extend(ai_insights.get('strengths', []))
+                        weaknesses.extend(ai_insights.get('weaknesses', []))
+                        recommendations.extend(ai_insights.get('recommendations', []))
+                except Exception as e:
+                    logger.warning(f"AI enhancement failed: {e}")
             
             # Calculate fit percentage
             fit_percentage = self._calculate_fit_percentage(enhanced_cv_data)
@@ -244,6 +272,164 @@ class CVAnalyzer:
             recommendations.append("Improve CV formatting and structure for better readability")
         
         return recommendations[:5]  # Limit to top 5 recommendations
+
+    def _get_ai_insights(self, cv_data: CVData, section_scores: List[SectionScore]) -> Optional[Dict[str, List[str]]]:
+        """Get AI-powered insights about the CV."""
+        try:
+            # Prepare CV summary for AI analysis
+            cv_summary = self._prepare_cv_summary(cv_data, section_scores)
+
+            # Create AI prompt
+            prompt = f"""
+Analyze this CV and provide insights:
+
+{cv_summary}
+
+Job Requirements:
+- Required skills: {', '.join(self.evaluation_criteria.required_skills)}
+- Preferred skills: {', '.join(self.evaluation_criteria.preferred_skills)}
+- Minimum experience: {self.evaluation_criteria.min_experience_years} years
+
+Please provide:
+1. Top 3 strengths of this candidate
+2. Top 3 areas for improvement
+3. Top 3 specific recommendations
+
+Format your response as JSON:
+{{
+    "strengths": ["strength1", "strength2", "strength3"],
+    "weaknesses": ["weakness1", "weakness2", "weakness3"],
+    "recommendations": ["rec1", "rec2", "rec3"]
+}}
+"""
+
+            # Get AI response
+            ai_response = get_ai_response(prompt, max_tokens=800)
+
+            # Try to parse JSON response
+            import json
+            try:
+                insights = json.loads(ai_response)
+                return insights
+            except json.JSONDecodeError:
+                # If JSON parsing fails, extract insights from text
+                return self._extract_insights_from_text(ai_response)
+
+        except Exception as e:
+            logger.error(f"AI insights generation failed: {e}")
+            return None
+
+    def _prepare_cv_summary(self, cv_data: CVData, section_scores: List[SectionScore]) -> str:
+        """Prepare a concise CV summary for AI analysis."""
+        summary_parts = []
+
+        # Personal info
+        if cv_data.personal_info.name:
+            summary_parts.append(f"Candidate: {cv_data.personal_info.name}")
+
+        # Skills
+        if cv_data.skills:
+            skills_text = ", ".join([skill.name for skill in cv_data.skills[:10]])
+            summary_parts.append(f"Skills: {skills_text}")
+
+        # Experience
+        if cv_data.work_experience:
+            exp_years = sum([exp.duration_months or 0 for exp in cv_data.work_experience]) / 12
+            summary_parts.append(f"Total Experience: {exp_years:.1f} years")
+
+            recent_exp = cv_data.work_experience[0] if cv_data.work_experience else None
+            if recent_exp:
+                summary_parts.append(f"Current Role: {recent_exp.position} at {recent_exp.company}")
+
+        # Education
+        if cv_data.education:
+            highest_edu = cv_data.education[0] if cv_data.education else None
+            if highest_edu:
+                summary_parts.append(f"Education: {highest_edu.degree} from {highest_edu.institution}")
+
+        # Section scores
+        scores_text = ", ".join([f"{score.section}: {score.score:.1f}/{score.max_score:.1f}"
+                                for score in section_scores])
+        summary_parts.append(f"Scores: {scores_text}")
+
+        return "\n".join(summary_parts)
+
+    def _extract_insights_from_text(self, text: str) -> Dict[str, List[str]]:
+        """Extract insights from unstructured AI response text."""
+        insights = {"strengths": [], "weaknesses": [], "recommendations": []}
+
+        lines = text.split('\n')
+        current_section = None
+
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+
+            # Detect section headers
+            if any(word in line.lower() for word in ['strength', 'positive', 'good']):
+                current_section = 'strengths'
+            elif any(word in line.lower() for word in ['weakness', 'improvement', 'lacking']):
+                current_section = 'weaknesses'
+            elif any(word in line.lower() for word in ['recommendation', 'suggest', 'should']):
+                current_section = 'recommendations'
+            elif line.startswith(('-', '•', '*', '1.', '2.', '3.')) and current_section:
+                # Extract bullet point
+                insight = line.lstrip('-•*123. ').strip()
+                if insight and len(insight) > 10:  # Minimum length filter
+                    insights[current_section].append(insight)
+
+        # Limit each section to 3 items
+        for section in insights:
+            insights[section] = insights[section][:3]
+
+        return insights
+
+    def chat_about_cv(self, cv_data: CVData, user_question: str) -> str:
+        """Chat interface for asking questions about a CV."""
+        if not self.ai_model_available:
+            return self._get_fallback_chat_response(user_question)
+
+        try:
+            # Prepare CV context
+            cv_context = self._prepare_cv_summary(cv_data, [])
+
+            # Create chat prompt
+            prompt = f"""
+You are a CV evaluation expert. Here's information about a candidate:
+
+{cv_context}
+
+User question: {user_question}
+
+Please provide a helpful, professional response about this candidate based on the CV information.
+"""
+
+            response = get_ai_response(prompt, max_tokens=600)
+            return response
+
+        except Exception as e:
+            logger.error(f"Chat response generation failed: {e}")
+            return f"I apologize, but I encountered an error while analyzing the CV. Error: {e}"
+
+    def _get_fallback_chat_response(self, user_question: str) -> str:
+        """Provide fallback response when AI is not available."""
+        question_lower = user_question.lower()
+
+        if any(word in question_lower for word in ['skill', 'technical', 'programming']):
+            return "I can help analyze the candidate's skills based on the CV content. The system extracts and categorizes technical skills, soft skills, and experience levels from the CV text."
+
+        elif any(word in question_lower for word in ['experience', 'work', 'job']):
+            return "I can evaluate the candidate's work experience including duration, relevance to the position, and career progression based on the information in their CV."
+
+        elif any(word in question_lower for word in ['education', 'degree', 'university']):
+            return "I can assess the candidate's educational background including degrees, institutions, and how well they match the job requirements."
+
+        elif any(word in question_lower for word in ['score', 'rating', 'evaluation']):
+            return "The system provides detailed scoring across multiple categories including skills, experience, education, and additional factors, with customizable weights for each section."
+
+        else:
+            return "I can help you evaluate this CV across multiple dimensions. You can ask about the candidate's skills, experience, education, or overall fit for the position. What specific aspect would you like to know about?"
     
     def _calculate_fit_percentage(self, cv_data: CVData) -> float:
         """Calculate how well the candidate fits the criteria."""

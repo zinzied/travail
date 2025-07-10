@@ -20,17 +20,19 @@ logger = logging.getLogger(__name__)
 class CVEvaluator:
     """Main CV evaluator that coordinates all evaluation components."""
     
-    def __init__(self, 
+    def __init__(self,
                  evaluation_criteria: Optional[EvaluationCriteria] = None,
                  criteria_name: str = "default",
-                 job_template: Optional[str] = None):
+                 job_template: Optional[str] = None,
+                 use_ai: bool = True):
         """
         Initialize CV evaluator.
-        
+
         Args:
             evaluation_criteria: Custom evaluation criteria
             criteria_name: Name of criteria configuration to load
             job_template: Job template to apply
+            use_ai: Whether to enable AI-enhanced analysis and chat features
         """
         # Setup logging
         setup_logging()
@@ -46,8 +48,9 @@ class CVEvaluator:
         # Initialize components
         self.pdf_extractor = PDFExtractor()
         self.cv_parser = CVParser()
-        self.analyzer = CVAnalyzer(self.evaluation_criteria)
+        self.analyzer = CVAnalyzer(self.evaluation_criteria, use_ai=use_ai)
         self.report_generator = ReportGenerator()
+        self.use_ai = use_ai
         
         logger.info("CV Evaluator initialized successfully")
     
