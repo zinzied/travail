@@ -1,0 +1,235 @@
+# Default Evaluation Criteria Configuration
+# This file defines the scoring system and evaluation criteria for CV analysis
+
+# General Settings
+max_score: 100
+min_score_threshold: 50
+
+# Scoring Weights (must sum to 1.0)
+scoring_weights:
+  skills: 0.4        # 40% - Technical and soft skills
+  experience: 0.3    # 30% - Work experience and career progression
+  education: 0.2     # 20% - Educational background
+  additional: 0.1    # 10% - Languages, certifications, projects
+
+# Skills Evaluation
+skills:
+  # Required skills (candidate must have these)
+  required:
+    - "communication"
+    - "problem solving"
+    - "teamwork"
+  
+  # Preferred skills (bonus points)
+  preferred:
+    - "project management"
+    - "leadership"
+    - "analytical thinking"
+  
+  # Technical skills by category
+  technical_categories:
+    programming:
+      weight: 0.3
+      skills:
+        - "python"
+        - "java"
+        - "javascript"
+        - "c++"
+        - "sql"
+    
+    web_development:
+      weight: 0.25
+      skills:
+        - "html"
+        - "css"
+        - "react"
+        - "angular"
+        - "node.js"
+    
+    data_science:
+      weight: 0.2
+      skills:
+        - "machine learning"
+        - "data analysis"
+        - "statistics"
+        - "pandas"
+        - "numpy"
+    
+    cloud_devops:
+      weight: 0.15
+      skills:
+        - "aws"
+        - "docker"
+        - "kubernetes"
+        - "jenkins"
+        - "terraform"
+    
+    tools:
+      weight: 0.1
+      skills:
+        - "git"
+        - "jira"
+        - "confluence"
+        - "visual studio"
+
+# Experience Evaluation
+experience:
+  # Minimum required experience in years
+  min_years: 2
+  
+  # Experience level scoring
+  level_weights:
+    entry: 0.3      # 0-2 years
+    junior: 0.5     # 2-5 years
+    mid: 0.7        # 5-8 years
+    senior: 0.9     # 8-12 years
+    lead: 1.0       # 12+ years
+  
+  # Industry keywords for relevance scoring
+  industry_keywords:
+    - "software development"
+    - "web development"
+    - "data analysis"
+    - "project management"
+    - "agile"
+    - "scrum"
+  
+  # Career progression indicators
+  progression_indicators:
+    - "promoted"
+    - "led team"
+    - "managed"
+    - "senior"
+    - "lead"
+    - "principal"
+
+# Education Evaluation
+education:
+  # Required education level (optional)
+  required_level: null  # bachelor, master, phd
+  
+  # Education level weights
+  level_weights:
+    high_school: 0.3
+    certification: 0.4
+    bachelor: 0.7
+    master: 0.9
+    phd: 1.0
+  
+  # Relevant fields of study
+  relevant_fields:
+    - "computer science"
+    - "software engineering"
+    - "information technology"
+    - "data science"
+    - "mathematics"
+    - "engineering"
+  
+  # Prestigious institutions (bonus points)
+  prestigious_institutions:
+    - "mit"
+    - "stanford"
+    - "harvard"
+    - "berkeley"
+    - "carnegie mellon"
+
+# Additional Factors
+additional:
+  # Languages
+  languages:
+    weight: 0.3
+    bonus_per_language: 5  # Points per additional language
+    
+  # Certifications
+  certifications:
+    weight: 0.4
+    bonus_per_cert: 3      # Points per certification
+    
+    # High-value certifications
+    high_value:
+      - "aws certified"
+      - "google cloud"
+      - "microsoft azure"
+      - "pmp"
+      - "scrum master"
+  
+  # Projects
+  projects:
+    weight: 0.3
+    bonus_per_project: 2   # Points per project
+
+# Job-Specific Criteria Templates
+job_templates:
+  software_engineer:
+    required_skills:
+      - "programming"
+      - "problem solving"
+      - "debugging"
+    preferred_skills:
+      - "python"
+      - "java"
+      - "git"
+      - "agile"
+    min_experience_years: 2
+    industry_keywords:
+      - "software development"
+      - "coding"
+      - "programming"
+  
+  data_scientist:
+    required_skills:
+      - "data analysis"
+      - "statistics"
+      - "python"
+      - "sql"
+    preferred_skills:
+      - "machine learning"
+      - "pandas"
+      - "numpy"
+      - "visualization"
+    min_experience_years: 3
+    industry_keywords:
+      - "data science"
+      - "analytics"
+      - "machine learning"
+  
+  project_manager:
+    required_skills:
+      - "project management"
+      - "leadership"
+      - "communication"
+      - "planning"
+    preferred_skills:
+      - "agile"
+      - "scrum"
+      - "pmp"
+      - "risk management"
+    min_experience_years: 5
+    industry_keywords:
+      - "project management"
+      - "team leadership"
+      - "planning"
+
+# Scoring Thresholds
+thresholds:
+  excellent: 85    # 85-100
+  good: 70        # 70-84
+  average: 55     # 55-69
+  below_average: 40  # 40-54
+  poor: 0         # 0-39
+
+# Report Configuration
+report:
+  include_sections:
+    - "summary"
+    - "detailed_scores"
+    - "strengths"
+    - "weaknesses"
+    - "recommendations"
+    - "skill_analysis"
+    - "experience_analysis"
+  
+  charts:
+    - "score_breakdown"
+    - "skill_radar"
+    - "experience_timeline"

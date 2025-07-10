@@ -1,0 +1,84 @@
+John Smith
+Senior Software Engineer
+john.smith@email.com
++1-555-0123
+LinkedIn: linkedin.com/in/johnsmith
+GitHub: github.com/johnsmith
+Location: San Francisco, CA
+
+PROFESSIONAL SUMMARY
+Experienced software engineer with 8+ years of expertise in full-stack development, 
+cloud architecture, and team leadership. Proven track record of delivering scalable 
+solutions and mentoring junior developers.
+
+TECHNICAL SKILLS
+Programming Languages: Python, Java, JavaScript, TypeScript, Go
+Web Technologies: React, Angular, Node.js, Express, Django, Flask
+Databases: PostgreSQL, MySQL, MongoDB, Redis
+Cloud Platforms: AWS, Azure, Docker, Kubernetes
+Tools & Technologies: Git, Jenkins, Terraform, Ansible
+Methodologies: Agile, Scrum, DevOps, TDD
+
+PROFESSIONAL EXPERIENCE
+
+Senior Software Engineer | TechCorp Inc. | 2020 - Present
+• Led development of microservices architecture serving 1M+ users
+• Implemented CI/CD pipelines reducing deployment time by 60%
+• Mentored team of 5 junior developers and conducted code reviews
+• Technologies: Python, Django, PostgreSQL, AWS, Docker, Kubernetes
+
+Software Engineer | StartupXYZ | 2018 - 2020
+• Developed RESTful APIs and web applications using Node.js and React
+• Optimized database queries improving application performance by 40%
+• Collaborated with cross-functional teams in Agile environment
+• Technologies: JavaScript, Node.js, React, MongoDB, AWS
+
+Junior Software Developer | DevCompany | 2016 - 2018
+• Built responsive web applications using HTML, CSS, and JavaScript
+• Participated in full software development lifecycle
+• Worked with senior developers to implement best practices
+• Technologies: JavaScript, PHP, MySQL, Git
+
+EDUCATION
+
+Master of Science in Computer Science
+Stanford University | 2016
+Relevant Coursework: Algorithms, Data Structures, Machine Learning
+
+Bachelor of Science in Software Engineering
+University of California, Berkeley | 2014
+GPA: 3.8/4.0
+Magna Cum Laude
+
+CERTIFICATIONS
+• AWS Certified Solutions Architect - Professional (2022)
+• Certified Kubernetes Administrator (2021)
+• Scrum Master Certification (2020)
+• Google Cloud Professional Developer (2019)
+
+PROJECTS
+
+E-commerce Platform (2023)
+• Built scalable e-commerce platform using microservices architecture
+• Implemented payment processing and inventory management
+• Technologies: Python, Django, PostgreSQL, Redis, AWS
+
+Data Analytics Dashboard (2022)
+• Developed real-time analytics dashboard for business intelligence
+• Integrated multiple data sources and created interactive visualizations
+• Technologies: React, D3.js, Python, Apache Kafka
+
+Open Source Contributions
+• Contributor to popular Python libraries with 500+ GitHub stars
+• Maintained documentation and resolved issues for community projects
+
+LANGUAGES
+• English (Native)
+• Spanish (Fluent)
+• French (Intermediate)
+
+ACHIEVEMENTS
+• Led team that won "Best Innovation" award at company hackathon (2022)
+• Reduced system downtime by 80% through infrastructure improvements
+• Published technical blog posts with 10,000+ views
+• Speaker at 3 technical conferences on cloud architecture
