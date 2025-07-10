@@ -18,6 +18,8 @@ import json
 from .core.evaluator import CVEvaluator
 from .core.batch_processor import BatchProcessor
 from .core.criteria_loader import criteria_manager
+from .core.interactive_criteria import InteractiveCriteriaBuilder, CriteriaFromFiles
+from .core.participant_evaluator import ParticipantEvaluator
 from .utils.exceptions import CVEvaluatorError
 from .utils.config import config
 
@@ -191,9 +193,126 @@ def validate(
 
 
 @app.command()
+def create_criteria():
+    """Create custom evaluation criteria interactively."""
+
+    try:
+        builder = InteractiveCriteriaBuilder()
+        criteria = builder.build_criteria_interactively()
+
+        if criteria:
+            # Ask for filename
+            filename = typer.prompt("Enter filename for criteria (without extension)", default="custom_criteria")
+            filepath = builder.save_criteria_to_file(criteria, filename)
+            console.print(f"[green]✓ Criteria saved successfully![/green]")
+            console.print(f"Use with: --criteria {filename}")
+
+    except Exception as e:
+        console.print(f"[red]Error creating criteria:[/red] {e}")
+        raise typer.Exit(1)
+
+
+@app.command()
+def criteria_from_files(
+    files: List[str] = typer.Argument(..., help="Job description or requirement files"),
+    output: Optional[str] = typer.Option(None, "--output", "-o", help="Output criteria filename")
+):
+    """Extract evaluation criteria from job description files."""
+
+    try:
+        extractor = CriteriaFromFiles()
+        criteria = extractor.extract_criteria_from_files(files)
+
+        if criteria:
+            filename = output or "extracted_criteria"
+            builder = InteractiveCriteriaBuilder()
+            filepath = builder.save_criteria_to_file(criteria, filename)
+            console.print(f"[green]✓ Criteria extracted and saved![/green]")
+            console.print(f"Use with: --criteria {filename}")
+
+    except Exception as e:
+        console.print(f"[red]Error extracting criteria:[/red] {e}")
+        raise typer.Exit(1)
+
+
+@app.command()
+def evaluate_participant(
+    participant_id: str = typer.Argument(..., help="Unique participant identifier"),
+    files: List[str] = typer.Option(..., "--file", "-f", help="Participant files (format: path:type:description)"),
+    criteria: str = typer.Option("default", "--criteria", "-c", help="Evaluation criteria"),
+    output: Optional[str] = typer.Option(None, "--output", "-o", help="Output directory"),
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose output")
+):
+    """Evaluate a participant with multiple files."""
+
+    try:
+        # Parse file specifications
+        participant_files = []
+        for file_spec in files:
+            parts = file_spec.split(':')
+            file_path = parts[0]
+            file_type = parts[1] if len(parts) > 1 else 'other'
+            description = parts[2] if len(parts) > 2 else ''
+
+            participant_files.append({
+                'path': file_path,
+                'type': file_type,
+                'description': description
+            })
+
+        if verbose:
+            console.print(f"[blue]Evaluating participant:[/blue] {participant_id}")
+            console.print(f"[blue]Files:[/blue] {len(participant_files)}")
+            for pf in participant_files:
+                console.print(f"  - {pf['path']} ({pf['type']})")
+
+        # Load criteria
+        evaluation_criteria = criteria_manager.get_criteria(criteria)
+
+        # Create participant evaluator
+        evaluator = ParticipantEvaluator(evaluation_criteria)
+
+        # Add participant and files
+        evaluator.add_participant_files(participant_id, participant_files)
+
+        # Process and evaluate
+        with console.status("Processing participant files..."):
+            evaluator.process_participant_files(participant_id)
+            result = evaluator.evaluate_participant(participant_id)
+
+        if result:
+            # Display results
+            _display_participant_results(participant_id, result, evaluator)
+
+            # Save results if output specified
+            if output:
+                output_path = Path(output)
+                output_path.mkdir(parents=True, exist_ok=True)
+
+                # Export detailed results
+                results_file = output_path / f"{participant_id}_results.json"
+                evaluator.export_results(str(results_file))
+
+                # Generate report
+                report_file = output_path / f"{participant_id}_report.pdf"
+                evaluator.evaluator.generate_report(result, str(report_file))
+
+                console.print(f"[green]✓ Results saved to:[/green] {output_path}")
+        else:
+            console.print(f"[red]Failed to evaluate participant[/red]")
+            raise typer.Exit(1)
+
+    except Exception as e:
+        console.print(f"[red]Error:[/red] {e}")
+        if verbose:
+            console.print_exception()
+        raise typer.Exit(1)
+
+
+@app.command()
 def config_info():
     """Display current configuration information."""
-    
+
     console.print(Panel.fit(
         f"[bold]CV Evaluator Configuration[/bold]\n\n"
         f"App Name: {config.app_name}\n"
@@ -254,9 +373,49 @@ def _display_evaluation_result(analysis_result):
             console.print(f"  • {weakness}")
 
 
+def _display_participant_results(participant_id: str, result, evaluator):
+    """Display participant evaluation results."""
+
+    participant = evaluator.participants[participant_id]
+
+    # Participant info panel
+    info_panel = Panel.fit(
+        f"[bold]Participant ID:[/bold] {participant_id}\n"
+        f"[bold]Name:[/bold] {participant.name or 'Unknown'}\n"
+        f"[bold]Files Processed:[/bold] {len(participant.files)}\n"
+        f"[bold]Overall Score:[/bold] {result.overall_score:.1f}/100\n"
+        f"[bold]Job Fit:[/bold] {result.fit_percentage:.1f}%",
+        title="Participant Evaluation"
+    )
+    console.print(info_panel)
+
+    # Files table
+    files_table = Table(title="Processed Files")
+    files_table.add_column("File", style="cyan")
+    files_table.add_column("Type", style="yellow")
+    files_table.add_column("Status", justify="center")
+    files_table.add_column("Description", style="dim")
+
+    for file_obj in participant.files:
+        status_color = "green" if file_obj.processing_status == "completed" else "red"
+        status = f"[{status_color}]{file_obj.processing_status}[/{status_color}]"
+
+        files_table.add_row(
+            file_obj.file_path.name,
+            file_obj.file_type,
+            status,
+            file_obj.description or "N/A"
+        )
+
+    console.print(files_table)
+
+    # Section scores
+    _display_evaluation_result(result)
+
+
 def _display_batch_results(results):
     """Display batch processing results."""
-    
+
     # Summary panel
     summary_panel = Panel.fit(
         f"[bold]Total Files:[/bold] {results['total_files']}\n"
@@ -266,14 +425,14 @@ def _display_batch_results(results):
         title="Batch Processing Summary"
     )
     console.print(summary_panel)
-    
+
     # Results table
     table = Table(title="Processing Results")
     table.add_column("File", style="cyan")
     table.add_column("Status", justify="center")
     table.add_column("Score", justify="right")
     table.add_column("Candidate", style="dim")
-    
+
     for result in results['results']:
         if result['success']:
             status = "[green]✓[/green]"
@@ -283,12 +442,12 @@ def _display_batch_results(results):
             status = "[red]✗[/red]"
             score = "N/A"
             candidate = "Error"
-        
+
         file_name = Path(result['file_path']).name
         table.add_row(file_name, status, score, candidate)
-    
+
     console.print(table)
-    
+
     if results['summary_report']:
         console.print(f"\n[green]✓ Summary report:[/green] {results['summary_report']}")
     console.print(f"[green]✓ Output directory:[/green] {results['output_directory']}")

@@ -28,6 +28,8 @@ from cv_evaluator.core.evaluator import CVEvaluator
 from cv_evaluator.core.batch_processor import BatchProcessor
 from cv_evaluator.core.criteria_loader import criteria_manager
 from cv_evaluator.core.models import EvaluationCriteria
+from cv_evaluator.core.interactive_criteria import InteractiveCriteriaBuilder, CriteriaFromFiles
+from cv_evaluator.core.participant_evaluator import ParticipantEvaluator
 from cv_evaluator.utils.exceptions import CVEvaluatorError
 
 
@@ -62,8 +64,8 @@ def main():
         # Evaluation mode
         mode = st.radio(
             "Evaluation Mode",
-            ["Single CV", "Batch Processing"],
-            help="Choose between single CV evaluation or batch processing"
+            ["Single CV", "Batch Processing", "Participant Evaluation", "Create Criteria"],
+            help="Choose evaluation mode"
         )
         
         # Report format
@@ -76,8 +78,12 @@ def main():
     # Main content area
     if mode == "Single CV":
         single_cv_interface(job_template, report_format)
-    else:
+    elif mode == "Batch Processing":
         batch_processing_interface(job_template, report_format)
+    elif mode == "Participant Evaluation":
+        participant_evaluation_interface(job_template, report_format)
+    elif mode == "Create Criteria":
+        criteria_creation_interface()
 
 
 def single_cv_interface(job_template: Optional[str], report_format: str):
@@ -410,6 +416,318 @@ def display_batch_results(results, uploaded_files):
                 st.subheader("Score Distribution")
                 score_df = pd.DataFrame({'Scores': scores})
                 st.bar_chart(score_df['Scores'].value_counts().sort_index())
+
+
+def participant_evaluation_interface(job_template: Optional[str], report_format: str):
+    """Interface for participant evaluation with multiple files."""
+    st.header("👥 Participant Evaluation")
+    st.markdown("Evaluate participants using multiple files (CV, cover letter, portfolio, etc.)")
+
+    # Participant information
+    col1, col2 = st.columns(2)
+    with col1:
+        participant_id = st.text_input("Participant ID", placeholder="e.g., PART_001")
+    with col2:
+        participant_name = st.text_input("Participant Name (optional)", placeholder="e.g., John Doe")
+
+    if not participant_id:
+        st.warning("Please enter a Participant ID to continue.")
+        return
+
+    # File upload section
+    st.subheader("📁 Upload Participant Files")
+
+    # File type options
+    file_types = {
+        "CV/Resume": "cv",
+        "Cover Letter": "cover_letter",
+        "Portfolio": "portfolio",
+        "Transcript": "transcript",
+        "Other": "other"
+    }
+
+    uploaded_files = []
+
+    # Multiple file uploaders
+    for display_name, file_type in file_types.items():
+        with st.expander(f"Upload {display_name}"):
+            files = st.file_uploader(
+                f"Choose {display_name} files",
+                type=['pdf', 'txt'],
+                accept_multiple_files=True,
+                key=f"files_{file_type}"
+            )
+
+            if files:
+                for file in files:
+                    description = st.text_input(
+                        f"Description for {file.name}",
+                        key=f"desc_{file_type}_{file.name}",
+                        placeholder="Optional description"
+                    )
+                    uploaded_files.append({
+                        'file': file,
+                        'type': file_type,
+                        'description': description
+                    })
+
+    if uploaded_files:
+        st.success(f"✅ {len(uploaded_files)} files ready for processing")
+
+        # Display file summary
+        with st.expander("📋 File Summary"):
+            for i, file_info in enumerate(uploaded_files, 1):
+                st.write(f"{i}. **{file_info['file'].name}** ({file_info['type']}) - {file_info['description'] or 'No description'}")
+
+        # Evaluation button
+        if st.button("🚀 Evaluate Participant", type="primary"):
+            try:
+                with st.spinner("Processing participant files and evaluating..."):
+                    # Load criteria
+                    evaluation_criteria = criteria_manager.get_criteria("default", job_template)
+
+                    # Create participant evaluator
+                    evaluator = ParticipantEvaluator(evaluation_criteria)
+
+                    # Save files temporarily and add to evaluator
+                    participant_files = []
+                    temp_files = []
+
+                    for file_info in uploaded_files:
+                        with tempfile.NamedTemporaryFile(delete=False, suffix=f".{file_info['file'].name.split('.')[-1]}") as tmp_file:
+                            tmp_file.write(file_info['file'].getvalue())
+                            temp_file_path = tmp_file.name
+                            temp_files.append(temp_file_path)
+
+                            participant_files.append({
+                                'path': temp_file_path,
+                                'type': file_info['type'],
+                                'description': file_info['description']
+                            })
+
+                    # Add participant
+                    evaluator.add_participant_files(participant_id, participant_files)
+                    if participant_name:
+                        evaluator.participants[participant_id].name = participant_name
+
+                    # Process and evaluate
+                    evaluator.process_participant_files(participant_id)
+                    result = evaluator.evaluate_participant(participant_id)
+
+                    if result:
+                        # Display results
+                        display_participant_evaluation_results(participant_id, result, evaluator)
+
+                        # Generate and offer report download
+                        with tempfile.NamedTemporaryFile(delete=False, suffix=f'.{report_format}') as report_file:
+                            report_path = evaluator.evaluator.generate_report(
+                                result, report_file.name, format=report_format
+                            )
+
+                            # Read report file for download
+                            with open(report_path, 'rb') as f:
+                                report_data = f.read()
+
+                            st.download_button(
+                                label=f"📥 Download {report_format.upper()} Report",
+                                data=report_data,
+                                file_name=f"{participant_id}_evaluation_report.{report_format}",
+                                mime=get_mime_type(report_format)
+                            )
+                    else:
+                        st.error("❌ Failed to evaluate participant")
+
+                    # Clean up temporary files
+                    for temp_file in temp_files:
+                        try:
+                            Path(temp_file).unlink(missing_ok=True)
+                        except:
+                            pass
+
+            except Exception as e:
+                st.error(f"❌ Evaluation failed: {e}")
+
+
+def criteria_creation_interface():
+    """Interface for creating custom evaluation criteria."""
+    st.header("⚙️ Create Custom Evaluation Criteria")
+    st.markdown("Define your own evaluation criteria or extract them from job description files.")
+
+    # Choose creation method
+    creation_method = st.radio(
+        "How would you like to create criteria?",
+        ["Interactive Builder", "Extract from Files", "Upload Criteria File"],
+        help="Choose your preferred method for creating evaluation criteria"
+    )
+
+    if creation_method == "Interactive Builder":
+        st.subheader("🔧 Interactive Criteria Builder")
+        st.markdown("*Note: For full interactive experience, use the command line: `python -m cv_evaluator create-criteria`*")
+
+        # Simplified web version
+        with st.form("criteria_form"):
+            st.write("**Basic Information**")
+            job_title = st.text_input("Job Title", placeholder="e.g., Senior Software Engineer")
+            department = st.text_input("Department", placeholder="e.g., Engineering")
+
+            st.write("**Required Skills** (one per line)")
+            required_skills_text = st.text_area("Required Skills", placeholder="Python\nSQL\nCommunication")
+
+            st.write("**Preferred Skills** (one per line)")
+            preferred_skills_text = st.text_area("Preferred Skills", placeholder="Machine Learning\nAWS\nDocker")
+
+            st.write("**Experience Requirements**")
+            min_years = st.number_input("Minimum Years of Experience", min_value=0, value=2)
+
+            st.write("**Scoring Weights** (must sum to 1.0)")
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                skills_weight = st.number_input("Skills", min_value=0.0, max_value=1.0, value=0.4, step=0.05)
+            with col2:
+                experience_weight = st.number_input("Experience", min_value=0.0, max_value=1.0, value=0.3, step=0.05)
+            with col3:
+                education_weight = st.number_input("Education", min_value=0.0, max_value=1.0, value=0.2, step=0.05)
+            with col4:
+                additional_weight = st.number_input("Additional", min_value=0.0, max_value=1.0, value=0.1, step=0.05)
+
+            filename = st.text_input("Criteria Filename", value="custom_criteria", help="Name for saving the criteria")
+
+            submitted = st.form_submit_button("Create Criteria")
+
+            if submitted:
+                # Validate weights
+                total_weight = skills_weight + experience_weight + education_weight + additional_weight
+                if abs(total_weight - 1.0) > 0.01:
+                    st.error(f"Scoring weights must sum to 1.0 (current sum: {total_weight:.2f})")
+                    return
+
+                try:
+                    # Parse skills
+                    required_skills = [s.strip() for s in required_skills_text.split('\n') if s.strip()]
+                    preferred_skills = [s.strip() for s in preferred_skills_text.split('\n') if s.strip()]
+
+                    # Create criteria
+                    criteria_data = {
+                        'required_skills': required_skills,
+                        'preferred_skills': preferred_skills,
+                        'min_experience_years': min_years,
+                        'scoring_weights': {
+                            'skills': skills_weight,
+                            'experience': experience_weight,
+                            'education': education_weight,
+                            'additional': additional_weight
+                        },
+                        'max_score': 100
+                    }
+
+                    criteria = EvaluationCriteria(**criteria_data)
+
+                    # Save criteria
+                    builder = InteractiveCriteriaBuilder()
+                    filepath = builder.save_criteria_to_file(criteria, filename)
+
+                    st.success(f"✅ Criteria created successfully!")
+                    st.info(f"Saved as: {filename}.yaml")
+                    st.info(f"Use with: --criteria {filename}")
+
+                except Exception as e:
+                    st.error(f"❌ Failed to create criteria: {e}")
+
+    elif creation_method == "Extract from Files":
+        st.subheader("📄 Extract from Job Description Files")
+
+        uploaded_files = st.file_uploader(
+            "Upload job description or requirement files",
+            type=['txt', 'json'],
+            accept_multiple_files=True,
+            help="Upload text files containing job descriptions or requirements"
+        )
+
+        if uploaded_files:
+            filename = st.text_input("Output Criteria Filename", value="extracted_criteria")
+
+            if st.button("Extract Criteria"):
+                try:
+                    # Save uploaded files temporarily
+                    temp_files = []
+                    for file in uploaded_files:
+                        with tempfile.NamedTemporaryFile(delete=False, suffix=f".{file.name.split('.')[-1]}") as tmp_file:
+                            tmp_file.write(file.getvalue())
+                            temp_files.append(tmp_file.name)
+
+                    # Extract criteria
+                    extractor = CriteriaFromFiles()
+                    criteria = extractor.extract_criteria_from_files(temp_files)
+
+                    if criteria:
+                        # Save criteria
+                        builder = InteractiveCriteriaBuilder()
+                        filepath = builder.save_criteria_to_file(criteria, filename)
+
+                        st.success(f"✅ Criteria extracted successfully!")
+                        st.info(f"Saved as: {filename}.yaml")
+
+                        # Display extracted criteria
+                        st.subheader("Extracted Criteria Preview")
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            st.write("**Required Skills:**")
+                            for skill in criteria.required_skills:
+                                st.write(f"• {skill}")
+                        with col2:
+                            st.write("**Preferred Skills:**")
+                            for skill in criteria.preferred_skills:
+                                st.write(f"• {skill}")
+
+                        st.write(f"**Minimum Experience:** {criteria.min_experience_years} years")
+
+                    # Clean up
+                    for temp_file in temp_files:
+                        try:
+                            Path(temp_file).unlink(missing_ok=True)
+                        except:
+                            pass
+
+                except Exception as e:
+                    st.error(f"❌ Failed to extract criteria: {e}")
+
+
+def display_participant_evaluation_results(participant_id: str, result, evaluator):
+    """Display participant evaluation results in the web interface."""
+    participant = evaluator.participants[participant_id]
+
+    # Participant summary
+    st.subheader(f"📊 Evaluation Results for {participant.name or participant_id}")
+
+    # Overall metrics
+    col1, col2, col3, col4 = st.columns(4)
+
+    with col1:
+        st.metric("Overall Score", f"{result.overall_score:.1f}/100")
+    with col2:
+        st.metric("Job Fit", f"{result.fit_percentage:.1f}%")
+    with col3:
+        st.metric("Files Processed", len(participant.files))
+    with col4:
+        successful_files = len([f for f in participant.files if f.processing_status == "completed"])
+        st.metric("Success Rate", f"{(successful_files/len(participant.files)*100):.0f}%")
+
+    # Files processing status
+    st.subheader("📁 File Processing Status")
+    files_data = []
+    for file_obj in participant.files:
+        files_data.append({
+            'File': file_obj.file_path.name,
+            'Type': file_obj.file_type.title(),
+            'Status': file_obj.processing_status.title(),
+            'Description': file_obj.description or 'N/A'
+        })
+
+    df_files = pd.DataFrame(files_data)
+    st.dataframe(df_files, use_container_width=True)
+
+    # Display standard evaluation results
+    display_evaluation_results(result)
 
 
 def get_mime_type(format: str) -> str:

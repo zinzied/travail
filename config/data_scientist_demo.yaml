@@ -1,0 +1,33 @@
+department: ''
+industry_keywords:
+- data science
+- machine learning
+- analytics
+- statistical modeling
+- data visualization
+job_title: Custom Position
+max_score: 100
+min_experience_years: 3
+preferred_skills:
+- tensorflow
+- pytorch
+- pandas
+- numpy
+- scikit-learn
+- tableau
+- power bi
+- aws
+- docker
+- git
+required_skills:
+- python
+- sql
+- statistics
+- machine learning
+- data analysis
+- communication
+scoring_weights:
+  additional: 0.05
+  education: 0.15
+  experience: 0.35
+  skills: 0.45
