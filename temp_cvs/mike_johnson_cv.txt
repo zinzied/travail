@@ -1,0 +1,25 @@
+
+Mike Johnson
+mike.johnson@email.com
++1-555-0125
+
+PROFESSIONAL SUMMARY
+DevOps engineer specializing in cloud infrastructure and automation.
+
+TECHNICAL SKILLS
+Cloud: AWS, Azure, GCP
+DevOps: Docker, Kubernetes, Jenkins
+Programming: Python, Bash, Go
+Infrastructure: Terraform, Ansible
+
+EXPERIENCE
+DevOps Engineer | CloudTech | 2019 - Present
+• Managed cloud infrastructure for 100+ services
+• Reduced deployment time by 60%
+
+System Administrator | Enterprise Corp | 2017 - 2019
+• Maintained Linux servers and networks
+
+EDUCATION
+BS Computer Science | University of Texas | 2017
+AWS Certified Solutions Architect | 2020

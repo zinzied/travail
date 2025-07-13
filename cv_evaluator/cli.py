@@ -20,6 +20,7 @@ from .core.batch_processor import BatchProcessor
 from .core.criteria_loader import criteria_manager
 from .core.interactive_criteria import InteractiveCriteriaBuilder, CriteriaFromFiles
 from .core.participant_evaluator import ParticipantEvaluator
+from .excel.excel_processor import ExcelProcessor, ExcelBatchProcessor
 from .utils.exceptions import CVEvaluatorError
 from .utils.config import config
 
@@ -449,6 +450,154 @@ Please provide a helpful, professional response about this candidate based on th
 
     except Exception as e:
         console.print(f"[red]Chat failed:[/red] {e}")
+        raise typer.Exit(1)
+
+
+@app.command()
+def excel_template(
+    output: str = typer.Option("candidates_template.xlsx", "--output", "-o", help="Output Excel template file")
+):
+    """Create Excel template for importing candidates."""
+
+    try:
+        processor = ExcelProcessor()
+        template_file = processor.create_excel_template(output)
+
+        console.print(f"[green]✓ Excel template created:[/green] {template_file}")
+        console.print("\n[bold]Template includes:[/bold]")
+        console.print("• candidate_id - Unique identifier")
+        console.print("• name - Candidate name")
+        console.print("• email - Email address")
+        console.print("• phone - Phone number")
+        console.print("• skills - Comma-separated skills")
+        console.print("• experience - Work experience (semicolon-separated)")
+        console.print("• education - Education background")
+        console.print("• cv_file_path - Path to CV file (optional)")
+        console.print("• status - Current status")
+        console.print("• notes - Additional notes")
+
+    except Exception as e:
+        console.print(f"[red]Error creating template:[/red] {e}")
+        raise typer.Exit(1)
+
+
+@app.command()
+def excel_evaluate(
+    excel_file: str = typer.Argument(..., help="Excel file with candidate data"),
+    output: str = typer.Option("evaluation_results.xlsx", "--output", "-o", help="Output Excel file"),
+    criteria: str = typer.Option("default", "--criteria", "-c", help="Evaluation criteria"),
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose output")
+):
+    """Evaluate candidates from Excel file and export results."""
+
+    try:
+        if not Path(excel_file).exists():
+            console.print(f"[red]Excel file not found:[/red] {excel_file}")
+            raise typer.Exit(1)
+
+        console.print(f"[blue]Processing Excel file:[/blue] {excel_file}")
+
+        processor = ExcelProcessor()
+
+        with console.status("Evaluating candidates from Excel..."):
+            results = processor.evaluate_candidates_from_excel(excel_file, criteria)
+
+        if not results:
+            console.print("[yellow]No candidates were successfully evaluated[/yellow]")
+            raise typer.Exit(1)
+
+        # Export results
+        with console.status("Exporting results to Excel..."):
+            output_file = processor.export_results_to_excel(results, output)
+
+        # Display summary
+        successful = len([r for r in results if r['overall_score'] > 0])
+        failed = len(results) - successful
+        avg_score = sum([r['overall_score'] for r in results if r['overall_score'] > 0]) / successful if successful > 0 else 0
+
+        console.print(Panel.fit(
+            f"[bold]Excel Evaluation Complete[/bold]\n\n"
+            f"Total Candidates: {len(results)}\n"
+            f"[green]Successfully Evaluated: {successful}[/green]\n"
+            f"[red]Failed: {failed}[/red]\n"
+            f"Average Score: {avg_score:.1f}/100\n"
+            f"Results File: {output_file}",
+            title="Summary"
+        ))
+
+        if verbose and successful > 0:
+            # Show top candidates
+            top_candidates = sorted(results, key=lambda x: x['overall_score'], reverse=True)[:5]
+
+            table = Table(title="Top 5 Candidates")
+            table.add_column("Name", style="cyan")
+            table.add_column("Score", justify="right", style="green")
+            table.add_column("Fit %", justify="right", style="yellow")
+            table.add_column("Skills", justify="right", style="blue")
+
+            for candidate in top_candidates:
+                if candidate['overall_score'] > 0:
+                    table.add_row(
+                        candidate['name'][:20],
+                        f"{candidate['overall_score']:.1f}",
+                        f"{candidate['fit_percentage']:.1f}%",
+                        str(candidate['skills_found'])
+                    )
+
+            console.print(table)
+
+    except Exception as e:
+        console.print(f"[red]Excel evaluation failed:[/red] {e}")
+        if verbose:
+            console.print_exception()
+        raise typer.Exit(1)
+
+
+@app.command()
+def excel_batch(
+    cv_folder: str = typer.Argument(..., help="Folder containing CV files"),
+    output: str = typer.Option("batch_results.xlsx", "--output", "-o", help="Output Excel file"),
+    criteria: str = typer.Option("default", "--criteria", "-c", help="Evaluation criteria"),
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose output")
+):
+    """Process CV folder and export results to Excel."""
+
+    try:
+        if not Path(cv_folder).exists():
+            console.print(f"[red]CV folder not found:[/red] {cv_folder}")
+            raise typer.Exit(1)
+
+        console.print(f"[blue]Processing CV folder:[/blue] {cv_folder}")
+
+        batch_processor = ExcelBatchProcessor()
+
+        with console.status("Processing CVs and generating Excel report..."):
+            output_file = batch_processor.process_cv_folder_to_excel(cv_folder, output, criteria)
+
+        console.print(f"[green]✓ Batch processing complete![/green]")
+        console.print(f"[green]✓ Results saved to:[/green] {output_file}")
+
+        # Read results for summary
+        import pandas as pd
+        df = pd.read_excel(output_file, sheet_name='Evaluation Results')
+
+        successful = len(df[df['overall_score'] > 0])
+        total = len(df)
+        avg_score = df[df['overall_score'] > 0]['overall_score'].mean() if successful > 0 else 0
+
+        console.print(Panel.fit(
+            f"[bold]Batch Processing Summary[/bold]\n\n"
+            f"Total CVs: {total}\n"
+            f"[green]Successfully Processed: {successful}[/green]\n"
+            f"[red]Failed: {total - successful}[/red]\n"
+            f"Average Score: {avg_score:.1f}/100",
+            title="Results"
+        ))
+
+    except Exception as e:
+        console.print(f"[red]Batch processing failed:[/red] {e}")
+        if verbose:
+            console.print_exception()
         raise typer.Exit(1)
 
 

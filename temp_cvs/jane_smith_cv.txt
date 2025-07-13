@@ -1,0 +1,25 @@
+
+Jane Smith
+jane.smith@email.com
++1-555-0124
+
+PROFESSIONAL SUMMARY
+Data scientist with expertise in machine learning and analytics.
+
+TECHNICAL SKILLS
+Programming: Python, R, SQL
+ML/AI: TensorFlow, PyTorch, scikit-learn
+Data: Pandas, NumPy, Matplotlib
+Cloud: AWS, Azure
+
+EXPERIENCE
+Senior Data Scientist | DataCorp | 2020 - Present
+• Built ML models for customer segmentation
+• Improved prediction accuracy by 25%
+
+Data Analyst | Analytics Inc. | 2018 - 2020
+• Created dashboards and reports
+
+EDUCATION
+PhD Statistics | MIT | 2018
+MS Data Science | UC Berkeley | 2016

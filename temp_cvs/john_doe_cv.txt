@@ -1,0 +1,25 @@
+
+John Doe
+john.doe@email.com
++1-555-0123
+
+PROFESSIONAL SUMMARY
+Experienced software engineer with 5+ years in full-stack development.
+
+TECHNICAL SKILLS
+Programming: Python, JavaScript, Java
+Web: React, Node.js, Django
+Cloud: AWS, Docker
+Databases: PostgreSQL, MongoDB
+
+EXPERIENCE
+Senior Software Engineer | TechCorp Inc. | 2021 - Present
+• Lead development of microservices architecture
+• Mentor team of 3 junior developers
+
+Software Engineer | StartupXYZ | 2019 - 2021
+• Developed RESTful APIs and web applications
+
+EDUCATION
+MS Computer Science | Stanford University | 2019
+BS Software Engineering | UC Berkeley | 2017

@@ -30,6 +30,7 @@ from cv_evaluator.core.criteria_loader import criteria_manager
 from cv_evaluator.core.models import EvaluationCriteria
 from cv_evaluator.core.interactive_criteria import InteractiveCriteriaBuilder, CriteriaFromFiles
 from cv_evaluator.core.participant_evaluator import ParticipantEvaluator
+from cv_evaluator.excel.excel_processor import ExcelProcessor, ExcelBatchProcessor
 from cv_evaluator.ai.free_models import get_ai_response, list_available_models, auto_select_ai_model
 from cv_evaluator.utils.exceptions import CVEvaluatorError
 
@@ -65,7 +66,7 @@ def main():
         # Evaluation mode
         mode = st.radio(
             "Evaluation Mode",
-            ["Single CV", "Batch Processing", "Participant Evaluation", "Create Criteria", "AI Chat"],
+            ["Single CV", "Batch Processing", "Participant Evaluation", "Create Criteria", "AI Chat", "Excel Integration"],
             help="Choose evaluation mode"
         )
         
@@ -87,6 +88,8 @@ def main():
         criteria_creation_interface()
     elif mode == "AI Chat":
         ai_chat_interface()
+    elif mode == "Excel Integration":
+        excel_integration_interface(job_template)
 
 
 def single_cv_interface(job_template: Optional[str], report_format: str):
@@ -102,7 +105,8 @@ def single_cv_interface(job_template: Optional[str], report_format: str):
     
     if uploaded_file is not None:
         # Save uploaded file temporarily
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp_file:
+        import tempfile as tmp_module
+        with tmp_module.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp_file:
             tmp_file.write(uploaded_file.getvalue())
             tmp_file_path = tmp_file.name
         
@@ -123,7 +127,7 @@ def single_cv_interface(job_template: Optional[str], report_format: str):
                     display_evaluation_results(result)
                     
                     # Generate and offer report download
-                    with tempfile.NamedTemporaryFile(delete=False, suffix=f'.{report_format}') as report_file:
+                    with tmp_module.NamedTemporaryFile(delete=False, suffix=f'.{report_format}') as report_file:
                         report_path = evaluator.generate_report(
                             result, report_file.name, format=report_format
                         )
@@ -193,7 +197,7 @@ def batch_processing_interface(job_template: Optional[str], report_format: str):
                     # Save files temporarily
                     temp_files = []
                     for file in uploaded_files:
-                        with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp_file:
+                        with tmp_module.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp_file:
                             tmp_file.write(file.getvalue())
                             temp_files.append(tmp_file.name)
                     
@@ -497,7 +501,7 @@ def participant_evaluation_interface(job_template: Optional[str], report_format:
                     temp_files = []
 
                     for file_info in uploaded_files:
-                        with tempfile.NamedTemporaryFile(delete=False, suffix=f".{file_info['file'].name.split('.')[-1]}") as tmp_file:
+                        with tmp_module.NamedTemporaryFile(delete=False, suffix=f".{file_info['file'].name.split('.')[-1]}") as tmp_file:
                             tmp_file.write(file_info['file'].getvalue())
                             temp_file_path = tmp_file.name
                             temp_files.append(temp_file_path)
@@ -522,7 +526,7 @@ def participant_evaluation_interface(job_template: Optional[str], report_format:
                         display_participant_evaluation_results(participant_id, result, evaluator)
 
                         # Generate and offer report download
-                        with tempfile.NamedTemporaryFile(delete=False, suffix=f'.{report_format}') as report_file:
+                        with tmp_module.NamedTemporaryFile(delete=False, suffix=f'.{report_format}') as report_file:
                             report_path = evaluator.evaluator.generate_report(
                                 result, report_file.name, format=report_format
                             )
@@ -654,7 +658,7 @@ def criteria_creation_interface():
                     # Save uploaded files temporarily
                     temp_files = []
                     for file in uploaded_files:
-                        with tempfile.NamedTemporaryFile(delete=False, suffix=f".{file.name.split('.')[-1]}") as tmp_file:
+                        with tmp_module.NamedTemporaryFile(delete=False, suffix=f".{file.name.split('.')[-1]}") as tmp_file:
                             tmp_file.write(file.getvalue())
                             temp_files.append(tmp_file.name)
 
@@ -862,7 +866,8 @@ def process_uploaded_cv_for_chat(uploaded_file) -> bool:
     """Process uploaded CV file for chat interface."""
     try:
         # Save file temporarily
-        with tempfile.NamedTemporaryFile(delete=False, suffix=f".{uploaded_file.name.split('.')[-1]}") as tmp_file:
+        import tempfile as tmp_module
+        with tmp_module.NamedTemporaryFile(delete=False, suffix=f".{uploaded_file.name.split('.')[-1]}") as tmp_file:
             tmp_file.write(uploaded_file.getvalue())
             tmp_file_path = tmp_file.name
 
@@ -986,6 +991,295 @@ def get_cv_context_for_chat(cv_data) -> str:
         context_parts.append(f"Education: {'; '.join(edu_summary)}")
 
     return "\n".join(context_parts)
+
+
+def excel_integration_interface(job_template: Optional[str]):
+    """Excel integration interface for importing/exporting candidate data."""
+    st.header("📊 Excel Integration")
+    st.markdown("Import candidates from Excel, evaluate them, and export results back to Excel")
+
+    # Choose Excel operation
+    excel_operation = st.radio(
+        "Choose Excel Operation",
+        ["Create Template", "Import & Evaluate", "Batch Process Folder"],
+        help="Select what you want to do with Excel"
+    )
+
+    if excel_operation == "Create Template":
+        st.subheader("📋 Create Excel Template")
+        st.markdown("Download a template Excel file for importing candidate data")
+
+        if st.button("📥 Download Excel Template", type="primary"):
+            try:
+                processor = ExcelProcessor()
+
+                # Create template in memory
+                import tempfile as tmp_module
+                with tmp_module.NamedTemporaryFile(suffix='.xlsx', delete=False) as tmp_file:
+                    template_path = processor.create_excel_template(tmp_file.name)
+
+                    # Read file for download
+                    with open(template_path, 'rb') as f:
+                        template_data = f.read()
+
+                    st.download_button(
+                        label="📥 Download Template",
+                        data=template_data,
+                        file_name="candidates_template.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    )
+
+                    # Clean up
+                    Path(template_path).unlink(missing_ok=True)
+
+                st.success("✅ Template ready for download!")
+
+                # Show template structure
+                with st.expander("📋 Template Structure"):
+                    st.write("**Required Columns:**")
+                    st.write("• `candidate_id` - Unique identifier for each candidate")
+                    st.write("• `name` - Candidate's full name")
+                    st.write("• `email` - Email address")
+                    st.write("• `phone` - Phone number")
+                    st.write("• `skills` - Comma-separated list of skills")
+                    st.write("• `experience` - Work experience (semicolon-separated entries)")
+                    st.write("• `education` - Education background")
+                    st.write("• `cv_file_path` - Path to CV file (optional)")
+                    st.write("• `status` - Current status (pending, reviewed, etc.)")
+                    st.write("• `notes` - Additional notes")
+
+            except Exception as e:
+                st.error(f"❌ Failed to create template: {e}")
+
+    elif excel_operation == "Import & Evaluate":
+        st.subheader("📤 Import & Evaluate Candidates")
+        st.markdown("Upload an Excel file with candidate data and get evaluation results")
+
+        # File upload
+        uploaded_excel = st.file_uploader(
+            "Upload Excel file with candidates",
+            type=['xlsx', 'xls'],
+            help="Upload Excel file containing candidate information"
+        )
+
+        if uploaded_excel is not None:
+            try:
+                # Save uploaded file temporarily
+                import tempfile as tmp_module
+                with tmp_module.NamedTemporaryFile(suffix='.xlsx', delete=False) as tmp_file:
+                    tmp_file.write(uploaded_excel.getvalue())
+                    excel_path = tmp_file.name
+
+                # Preview data
+                import pandas as pd
+                df_preview = pd.read_excel(excel_path)
+
+                st.write("**Data Preview:**")
+                st.dataframe(df_preview.head(), use_container_width=True)
+
+                st.write(f"**Total candidates:** {len(df_preview)}")
+
+                # Evaluation settings
+                col1, col2 = st.columns(2)
+                with col1:
+                    criteria_name = st.selectbox(
+                        "Evaluation Criteria",
+                        ["default", "software_engineer", "data_scientist", "product_manager"],
+                        help="Choose evaluation criteria"
+                    )
+
+                with col2:
+                    include_ai = st.checkbox("Use AI Enhancement", value=True, help="Enable AI-powered insights")
+
+                # Evaluate button
+                if st.button("🚀 Evaluate All Candidates", type="primary"):
+                    try:
+                        with st.spinner("Evaluating candidates... This may take a few minutes."):
+                            processor = ExcelProcessor()
+                            results = processor.evaluate_candidates_from_excel(excel_path, criteria_name)
+
+                        if results:
+                            st.success(f"✅ Evaluated {len(results)} candidates!")
+
+                            # Show summary
+                            successful = len([r for r in results if r['overall_score'] > 0])
+                            failed = len(results) - successful
+                            avg_score = sum([r['overall_score'] for r in results if r['overall_score'] > 0]) / successful if successful > 0 else 0
+
+                            col1, col2, col3, col4 = st.columns(4)
+                            with col1:
+                                st.metric("Total", len(results))
+                            with col2:
+                                st.metric("Successful", successful)
+                            with col3:
+                                st.metric("Failed", failed)
+                            with col4:
+                                st.metric("Avg Score", f"{avg_score:.1f}")
+
+                            # Show results table
+                            st.subheader("📊 Evaluation Results")
+                            results_df = pd.DataFrame(results)
+                            st.dataframe(results_df, use_container_width=True)
+
+                            # Export results
+                            with tmp_module.NamedTemporaryFile(suffix='.xlsx', delete=False) as tmp_result:
+                                output_path = processor.export_results_to_excel(results, tmp_result.name)
+
+                                # Read for download
+                                with open(output_path, 'rb') as f:
+                                    results_data = f.read()
+
+                                st.download_button(
+                                    label="📥 Download Results Excel",
+                                    data=results_data,
+                                    file_name=f"evaluation_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                                )
+
+                                # Clean up
+                                Path(output_path).unlink(missing_ok=True)
+
+                        else:
+                            st.error("❌ No candidates were successfully evaluated")
+
+                    except Exception as e:
+                        st.error(f"❌ Evaluation failed: {e}")
+
+                # Clean up
+                Path(excel_path).unlink(missing_ok=True)
+
+            except Exception as e:
+                st.error(f"❌ Failed to process Excel file: {e}")
+
+    elif excel_operation == "Batch Process Folder":
+        st.subheader("📁 Batch Process CV Folder")
+        st.markdown("Process all CVs in a folder and export results to Excel")
+
+        # Folder selection (simulated with file upload)
+        st.info("💡 Upload multiple CV files to simulate folder processing")
+
+        uploaded_cvs = st.file_uploader(
+            "Upload CV files",
+            type=['pdf', 'txt'],
+            accept_multiple_files=True,
+            help="Upload multiple CV files for batch processing"
+        )
+
+        if uploaded_cvs:
+            st.write(f"**Files uploaded:** {len(uploaded_cvs)}")
+
+            # Show file list
+            with st.expander("📋 Uploaded Files"):
+                for i, file in enumerate(uploaded_cvs, 1):
+                    st.write(f"{i}. {file.name}")
+
+            # Evaluation settings
+            criteria_name = st.selectbox(
+                "Evaluation Criteria",
+                ["default", "software_engineer", "data_scientist", "product_manager"],
+                help="Choose evaluation criteria",
+                key="batch_criteria"
+            )
+
+            if st.button("🚀 Process All CVs", type="primary"):
+                try:
+                    with st.spinner("Processing CVs and generating Excel report..."):
+                        # Save files temporarily
+                        temp_files = []
+                        results = []
+
+                        evaluator = CVEvaluator(criteria_name=criteria_name)
+
+                        for i, uploaded_file in enumerate(uploaded_cvs, 1):
+                            try:
+                                # Save file temporarily
+                                with tmp_module.NamedTemporaryFile(delete=False, suffix=f".{uploaded_file.name.split('.')[-1]}") as tmp_file:
+                                    tmp_file.write(uploaded_file.getvalue())
+                                    temp_file_path = tmp_file.name
+                                    temp_files.append(temp_file_path)
+
+                                # Evaluate CV
+                                result = evaluator.evaluate_cv(temp_file_path)
+
+                                if result:
+                                    candidate_result = {
+                                        'candidate_id': f"CV_{i:03d}",
+                                        'name': result.cv_data.personal_info.name or uploaded_file.name.split('.')[0],
+                                        'email': result.cv_data.personal_info.email or '',
+                                        'phone': result.cv_data.personal_info.phone or '',
+                                        'cv_file': uploaded_file.name,
+                                        'overall_score': result.overall_score,
+                                        'fit_percentage': result.fit_percentage,
+                                        'skills_score': next((s.score for s in result.section_scores if s.section == 'skills'), 0),
+                                        'experience_score': next((s.score for s in result.section_scores if s.section == 'experience'), 0),
+                                        'education_score': next((s.score for s in result.section_scores if s.section == 'education'), 0),
+                                        'additional_score': next((s.score for s in result.section_scores if s.section == 'additional'), 0),
+                                        'strengths': '; '.join(result.strengths[:3]),
+                                        'weaknesses': '; '.join(result.weaknesses[:3]),
+                                        'recommendations': '; '.join(result.recommendations[:3]),
+                                        'skills_found': len(result.cv_data.skills),
+                                        'experience_years': sum([exp.duration_months or 0 for exp in result.cv_data.work_experience]) / 12,
+                                        'education_level': len(result.cv_data.education),
+                                        'evaluation_date': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                                        'status': 'evaluated'
+                                    }
+                                    results.append(candidate_result)
+
+                            except Exception as e:
+                                st.warning(f"Failed to process {uploaded_file.name}: {e}")
+                                continue
+
+                    if results:
+                        st.success(f"✅ Processed {len(results)} CVs successfully!")
+
+                        # Show summary
+                        avg_score = sum([r['overall_score'] for r in results]) / len(results)
+                        top_score = max([r['overall_score'] for r in results])
+
+                        col1, col2, col3 = st.columns(3)
+                        with col1:
+                            st.metric("CVs Processed", len(results))
+                        with col2:
+                            st.metric("Average Score", f"{avg_score:.1f}")
+                        with col3:
+                            st.metric("Top Score", f"{top_score:.1f}")
+
+                        # Show results
+                        st.subheader("📊 Batch Processing Results")
+                        results_df = pd.DataFrame(results)
+                        st.dataframe(results_df, use_container_width=True)
+
+                        # Export to Excel
+                        processor = ExcelProcessor()
+                        with tmp_module.NamedTemporaryFile(suffix='.xlsx', delete=False) as tmp_result:
+                            output_path = processor.export_results_to_excel(results, tmp_result.name)
+
+                            # Read for download
+                            with open(output_path, 'rb') as f:
+                                results_data = f.read()
+
+                            st.download_button(
+                                label="📥 Download Batch Results Excel",
+                                data=results_data,
+                                file_name=f"batch_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                            )
+
+                            # Clean up
+                            Path(output_path).unlink(missing_ok=True)
+
+                    else:
+                        st.error("❌ No CVs were successfully processed")
+
+                    # Clean up temp files
+                    for temp_file in temp_files:
+                        try:
+                            Path(temp_file).unlink(missing_ok=True)
+                        except:
+                            pass
+
+                except Exception as e:
+                    st.error(f"❌ Batch processing failed: {e}")
 
 
 def get_mime_type(format: str) -> str:
