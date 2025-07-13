@@ -20,7 +20,7 @@ setup(
     name="cv-evaluator",
     version="1.0.0",
     author="Zied Boughdir",
-    author_email="zied.boughdir@example.com",
+    author_email="ziedboughdir@gmail.com",
     description="AI-powered CV evaluation and analysis system",
     long_description=long_description,
     long_description_content_type="text/markdown",
