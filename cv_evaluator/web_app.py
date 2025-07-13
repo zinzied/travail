@@ -9,6 +9,7 @@ import streamlit as st
 import tempfile
 import json
 import sys
+import logging
 from pathlib import Path
 import pandas as pd
 from typing import Optional
@@ -32,7 +33,10 @@ from cv_evaluator.core.interactive_criteria import InteractiveCriteriaBuilder, C
 from cv_evaluator.core.participant_evaluator import ParticipantEvaluator
 from cv_evaluator.excel.excel_processor import ExcelProcessor, ExcelBatchProcessor
 from cv_evaluator.ai.free_models import get_ai_response, list_available_models, auto_select_ai_model
+from cv_evaluator.pdf.extractor import UniversalDocumentExtractor
 from cv_evaluator.utils.exceptions import CVEvaluatorError
+
+logger = logging.getLogger(__name__)
 
 
 def main():
@@ -738,15 +742,17 @@ def display_participant_evaluation_results(participant_id: str, result, evaluato
 
 
 def ai_chat_interface():
-    """AI chat interface for CV evaluation."""
-    st.header("💬 AI Chat Assistant")
-    st.markdown("Upload a CV and chat with AI about the candidate's qualifications")
+    """AI chat interface for document analysis and chat."""
+    st.header("💬 AI Document Chat Assistant")
+    st.markdown("Upload a document (PDF, Word, or Excel) and chat with AI about its content")
 
     # Initialize session state for chat
     if 'chat_history' not in st.session_state:
         st.session_state.chat_history = []
-    if 'current_cv_data' not in st.session_state:
-        st.session_state.current_cv_data = None
+    if 'current_document_data' not in st.session_state:
+        st.session_state.current_document_data = None
+    if 'document_extractor' not in st.session_state:
+        st.session_state.document_extractor = UniversalDocumentExtractor()
     if 'evaluator' not in st.session_state:
         st.session_state.evaluator = None
 
@@ -787,33 +793,46 @@ def ai_chat_interface():
                 else:
                     st.error("No models available")
 
-    # CV upload section
-    st.subheader("📄 Upload CV")
+    # Document upload section
+    st.subheader("📄 Upload Document")
+
+    # Get supported extensions from the extractor
+    extractor = st.session_state.document_extractor
+    supported_extensions = [ext.lstrip('.') for ext in extractor.get_supported_extensions()]
+    supported_extensions.append('txt')  # Add text files
 
     uploaded_file = st.file_uploader(
-        "Choose a CV file",
-        type=['pdf', 'txt'],
-        help="Upload a PDF or text file containing the CV"
+        "Choose a document file",
+        type=supported_extensions,
+        help="Upload a PDF, Word document (.docx), Excel file (.xlsx), or text file"
     )
 
+    # Display supported file types
+    with st.expander("ℹ️ Supported File Types"):
+        st.write("**Supported document formats:**")
+        st.write("• **PDF** (.pdf) - Portable Document Format")
+        st.write("• **Word** (.docx, .doc) - Microsoft Word documents")
+        st.write("• **Excel** (.xlsx, .xls) - Microsoft Excel spreadsheets")
+        st.write("• **Text** (.txt) - Plain text files")
+
     if uploaded_file is not None:
-        # Process the uploaded CV
-        with st.spinner("Processing CV..."):
-            success = process_uploaded_cv_for_chat(uploaded_file)
+        # Process the uploaded document
+        with st.spinner("Processing document..."):
+            success = process_uploaded_document_for_chat(uploaded_file)
 
             if success:
-                candidate_name = st.session_state.current_cv_data.personal_info.name or 'Unknown candidate'
-                st.success(f"✅ CV processed: {candidate_name}")
+                file_type = st.session_state.document_extractor.get_file_type_description(uploaded_file.name)
+                st.success(f"✅ {file_type} processed successfully: {uploaded_file.name}")
 
-                # Show CV summary
-                with st.expander("📋 CV Summary"):
-                    display_cv_summary_for_chat()
+                # Show document summary
+                with st.expander("📋 Document Summary"):
+                    display_document_summary_for_chat()
             else:
-                st.error("❌ Failed to process CV")
+                st.error("❌ Failed to process document")
 
     # Chat section
-    if st.session_state.current_cv_data:
-        st.subheader("💬 Chat about this CV")
+    if st.session_state.current_document_data:
+        st.subheader("💬 Chat about this Document")
 
         # Display chat history
         if st.session_state.chat_history:
@@ -824,26 +843,61 @@ def ai_chat_interface():
                     st.write(f"**Assistant:** {answer}")
                     st.divider()
 
-        # Quick question buttons
+        # Quick question buttons based on document type
+        file_type = st.session_state.current_document_data.get('metadata', {}).get('file_type', '').lower()
+
         st.write("**Quick Questions:**")
         col1, col2, col3 = st.columns(3)
 
-        with col1:
-            if st.button("🎯 Overall Assessment"):
-                ask_question_about_cv("What is your overall assessment of this candidate?")
-
-        with col2:
-            if st.button("💪 Key Strengths"):
-                ask_question_about_cv("What are the key strengths of this candidate?")
-
-        with col3:
-            if st.button("📈 Areas for Improvement"):
-                ask_question_about_cv("What areas should this candidate improve?")
+        if file_type == '.pdf' or (uploaded_file and ('cv' in uploaded_file.name.lower() or 'resume' in uploaded_file.name.lower())):
+            # CV/Resume specific questions
+            with col1:
+                if st.button("🎯 Overall Assessment"):
+                    ask_question_about_document("What is your overall assessment of this candidate?")
+            with col2:
+                if st.button("💼 Key Skills"):
+                    ask_question_about_document("What are the key skills mentioned in this document?")
+            with col3:
+                if st.button("📈 Experience Level"):
+                    ask_question_about_document("What is the experience level of this candidate?")
+        elif file_type in ['.xlsx', '.xls']:
+            # Excel specific questions
+            with col1:
+                if st.button("📊 Data Summary"):
+                    ask_question_about_document("Can you summarize the data in this spreadsheet?")
+            with col2:
+                if st.button("🔢 Key Metrics"):
+                    ask_question_about_document("What are the key metrics or numbers in this data?")
+            with col3:
+                if st.button("📈 Trends"):
+                    ask_question_about_document("What trends or patterns can you identify in this data?")
+        elif file_type in ['.docx', '.doc']:
+            # Word document specific questions
+            with col1:
+                if st.button("📝 Main Points"):
+                    ask_question_about_document("What are the main points discussed in this document?")
+            with col2:
+                if st.button("🎯 Purpose"):
+                    ask_question_about_document("What is the purpose or objective of this document?")
+            with col3:
+                if st.button("📋 Summary"):
+                    ask_question_about_document("Can you provide a summary of this document?")
+        else:
+            # Generic questions
+            with col1:
+                if st.button("📝 Summary"):
+                    ask_question_about_document("Can you summarize this document?")
+            with col2:
+                if st.button("🎯 Key Points"):
+                    ask_question_about_document("What are the key points in this document?")
+            with col3:
+                if st.button("❓ Analysis"):
+                    ask_question_about_document("Can you analyze the content of this document?")
 
         # Custom question input
         user_question = st.text_input(
-            "Ask a question about this CV:",
-            placeholder="e.g., Does this candidate have experience with Python?",
+            "Ask a question about this document:",
+            placeholder="e.g., What is the main topic discussed in this document?",
             key="chat_input"
         )
 
@@ -851,7 +905,7 @@ def ai_chat_interface():
         with col1:
             if st.button("Send", type="primary"):
                 if user_question.strip():
-                    ask_question_about_cv(user_question)
+                    ask_question_about_document(user_question)
                     st.rerun()
 
         with col2:
@@ -859,11 +913,11 @@ def ai_chat_interface():
                 st.session_state.chat_history = []
                 st.rerun()
     else:
-        st.info("👆 Please upload a CV to start chatting about the candidate")
+        st.info("👆 Please upload a document to start chatting about its content")
 
 
-def process_uploaded_cv_for_chat(uploaded_file) -> bool:
-    """Process uploaded CV file for chat interface."""
+def process_uploaded_document_for_chat(uploaded_file) -> bool:
+    """Process uploaded document file for chat interface."""
     try:
         # Save file temporarily
         import tempfile as tmp_module
@@ -871,31 +925,109 @@ def process_uploaded_cv_for_chat(uploaded_file) -> bool:
             tmp_file.write(uploaded_file.getvalue())
             tmp_file_path = tmp_file.name
 
-        # Create evaluator and process CV
-        st.session_state.evaluator = CVEvaluator()
-
-        if uploaded_file.name.endswith('.pdf'):
-            # Extract from PDF
-            extraction_result = st.session_state.evaluator.pdf_extractor.extract_text(tmp_file_path)
-            cv_text = extraction_result.get('text', '')
+        # Extract text based on file type
+        if uploaded_file.name.endswith('.txt'):
+            # Read text file directly
+            document_text = Path(tmp_file_path).read_text(encoding='utf-8')
+            extraction_result = {
+                'text': document_text,
+                'metadata': {
+                    'file_type': '.txt',
+                    'file_name': uploaded_file.name,
+                    'file_size': len(uploaded_file.getvalue()),
+                    'method': 'direct_read'
+                },
+                'confidence': 1.0
+            }
         else:
-            # Read text file
-            cv_text = Path(tmp_file_path).read_text(encoding='utf-8')
+            # Use universal document extractor
+            extraction_result = st.session_state.document_extractor.extract_text(tmp_file_path)
 
-        # Parse CV
-        st.session_state.current_cv_data = st.session_state.evaluator.cv_parser.parse_cv(cv_text)
+        if not extraction_result.get('text', '').strip():
+            st.error("No text could be extracted from the file")
+            return False
 
-        # Clear chat history when new CV is uploaded
+        # Store document data
+        st.session_state.current_document_data = extraction_result
+
+        # If it's a CV-like document, also parse it for CV-specific features
+        if (uploaded_file.name.lower().endswith('.pdf') or
+            'cv' in uploaded_file.name.lower() or
+            'resume' in uploaded_file.name.lower()):
+            try:
+                st.session_state.evaluator = CVEvaluator()
+                cv_data = st.session_state.evaluator.cv_parser.parse_cv(extraction_result['text'])
+                st.session_state.current_cv_data = cv_data
+            except Exception as e:
+                logger.warning(f"Could not parse as CV: {e}")
+                st.session_state.current_cv_data = None
+
+        # Clear chat history when new document is uploaded
         st.session_state.chat_history = []
 
-        # Clean up
+        # Clean up temporary file
         Path(tmp_file_path).unlink(missing_ok=True)
 
         return True
 
     except Exception as e:
-        st.error(f"Error processing CV: {e}")
+        st.error(f"Error processing document: {e}")
         return False
+
+
+def process_uploaded_cv_for_chat(uploaded_file) -> bool:
+    """Legacy function - redirects to document processor."""
+    return process_uploaded_document_for_chat(uploaded_file)
+
+
+def display_document_summary_for_chat():
+    """Display a summary of the processed document for chat."""
+    doc_data = st.session_state.current_document_data
+    if not doc_data:
+        return
+
+    metadata = doc_data.get('metadata', {})
+    text_content = doc_data.get('text', '')
+
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        st.metric("File Size", f"{metadata.get('file_size', 0) / 1024:.1f} KB")
+
+    with col2:
+        file_type_key = metadata.get('file_type', '').lower()
+        if file_type_key == '.pdf':
+            st.metric("Pages", metadata.get('pages', 0))
+        elif file_type_key in ['.docx', '.doc']:
+            st.metric("Paragraphs", metadata.get('paragraphs', 0))
+        elif file_type_key in ['.xlsx', '.xls']:
+            st.metric("Sheets", metadata.get('sheets', 0))
+        else:
+            st.metric("Characters", len(text_content))
+
+    with col3:
+        st.metric("Extraction Method", metadata.get('method', 'Unknown'))
+
+    # Show additional metadata based on file type
+    if file_type_key in ['.xlsx', '.xls']:
+        st.write("**Sheet Names:**", ', '.join(metadata.get('sheet_names', [])))
+        st.write(f"**Total Rows:** {metadata.get('total_rows', 0)}")
+        st.write(f"**Total Columns:** {metadata.get('total_columns', 0)}")
+    elif file_type_key in ['.docx', '.doc']:
+        if metadata.get('tables', 0) > 0:
+            st.write(f"**Tables Found:** {metadata.get('tables', 0)}")
+
+    # Show text preview
+    if text_content:
+        st.text_area("Text Preview (first 500 characters):",
+                   text_content[:500] + "..." if len(text_content) > 500 else text_content,
+                   height=100)
+
+    # If CV data is also available, show CV-specific summary
+    if st.session_state.current_cv_data:
+        st.write("---")
+        st.write("**CV Analysis:**")
+        display_cv_summary_for_chat()
 
 
 def display_cv_summary_for_chat():
@@ -991,6 +1123,89 @@ def get_cv_context_for_chat(cv_data) -> str:
         context_parts.append(f"Education: {'; '.join(edu_summary)}")
 
     return "\n".join(context_parts)
+
+
+def ask_question_about_document(question: str):
+    """Ask a question about the current document."""
+    if not st.session_state.current_document_data:
+        st.error("No document data available")
+        return
+
+    try:
+        # Prepare document context
+        doc_data = st.session_state.current_document_data
+        metadata = doc_data.get('metadata', {})
+        text_content = doc_data.get('text', '')
+        file_type = metadata.get('file_type', '').lower()
+
+        # Truncate text if too long (keep first 3000 characters for context)
+        if len(text_content) > 3000:
+            text_content = text_content[:3000] + "\n... (content truncated)"
+
+        # Create context based on file type
+        if file_type in ['.xlsx', '.xls']:
+            context_header = f"""
+Document Type: Excel Spreadsheet
+File Name: {metadata.get('file_name', 'Unknown')}
+Sheets: {metadata.get('sheets', 0)} ({', '.join(metadata.get('sheet_names', []))})
+Total Rows: {metadata.get('total_rows', 0)}
+Total Columns: {metadata.get('total_columns', 0)}
+
+Content:
+{text_content}
+"""
+        elif file_type in ['.docx', '.doc']:
+            context_header = f"""
+Document Type: Word Document
+File Name: {metadata.get('file_name', 'Unknown')}
+Paragraphs: {metadata.get('paragraphs', 0)}
+Tables: {metadata.get('tables', 0)}
+
+Content:
+{text_content}
+"""
+        elif file_type == '.pdf':
+            context_header = f"""
+Document Type: PDF Document
+File Name: {metadata.get('file_name', 'Unknown')}
+Pages: {metadata.get('pages', 0)}
+
+Content:
+{text_content}
+"""
+        else:
+            context_header = f"""
+Document Type: Text File
+File Name: {metadata.get('file_name', 'Unknown')}
+
+Content:
+{text_content}
+"""
+
+        # Create prompt
+        prompt = f"""
+You are a helpful document analysis assistant. Here's information about a document:
+
+{context_header}
+
+User question: {question}
+
+Please provide a helpful, professional response about this document based on its content.
+Keep your response concise and focused on the question asked.
+If the document appears to be a CV/resume, provide career-focused insights.
+If it's a spreadsheet, focus on data analysis.
+If it's a Word document, focus on the content and structure.
+"""
+
+        # Get AI response
+        answer = get_ai_response(prompt, max_tokens=500)
+
+        # Add to chat history
+        st.session_state.chat_history.append((question, answer))
+
+    except Exception as e:
+        error_msg = f"Sorry, I encountered an error: {e}"
+        st.session_state.chat_history.append((question, error_msg))
 
 
 def excel_integration_interface(job_template: Optional[str]):
