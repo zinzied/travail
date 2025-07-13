@@ -49,6 +49,7 @@ class PDFExtractor:
             raise PDFExtractionError(f"File is not a PDF: {pdf_path}")
         
         # Try extraction methods in order of preference
+        last_error = None
         for method in self.extraction_methods:
             try:
                 result = method(pdf_path)
@@ -57,9 +58,21 @@ class PDFExtractor:
                     return result
             except Exception as e:
                 logger.warning(f"Failed to extract with {method.__name__}: {e}")
+                last_error = e
                 continue
-        
-        raise PDFExtractionError(f"Failed to extract text from PDF: {pdf_path}")
+
+        # If all methods fail, return empty result instead of raising exception
+        logger.error(f"All PDF extraction methods failed for: {pdf_path}")
+        return {
+            'text': '',
+            'metadata': {
+                'pages': 0,
+                'method': 'failed',
+                'error': str(last_error) if last_error else 'Unknown error',
+                'file_size': pdf_path.stat().st_size if pdf_path.exists() else 0
+            },
+            'confidence': 0.0
+        }
     
     def _extract_with_pdfplumber(self, pdf_path: Path) -> Dict[str, Any]:
         """Extract text using pdfplumber (best for structured documents)."""
@@ -294,8 +307,49 @@ class UniversalDocumentExtractor:
             '.docx': self.word_extractor,
             '.doc': self.word_extractor,
             '.xlsx': self.excel_extractor,
-            '.xls': self.excel_extractor
+            '.xls': self.excel_extractor,
+            '.txt': self._extract_text_file
         }
+
+    def _extract_text_file(self, file_path: str) -> Dict[str, Any]:
+        """Extract text from plain text file."""
+        file_path = Path(file_path)
+
+        try:
+            # Try different encodings
+            encodings = ['utf-8', 'utf-16', 'latin-1', 'cp1252']
+            text_content = None
+            used_encoding = None
+
+            for encoding in encodings:
+                try:
+                    text_content = file_path.read_text(encoding=encoding)
+                    used_encoding = encoding
+                    break
+                except UnicodeDecodeError:
+                    continue
+
+            if text_content is None:
+                raise DocumentExtractionError(f"Could not decode text file with any supported encoding")
+
+            metadata = {
+                'file_type': '.txt',
+                'file_name': file_path.name,
+                'file_size': file_path.stat().st_size,
+                'method': 'direct_read',
+                'encoding': used_encoding,
+                'lines': len(text_content.splitlines())
+            }
+
+            return {
+                'text': text_content,
+                'metadata': metadata,
+                'confidence': 1.0
+            }
+
+        except Exception as e:
+            logger.error(f"Failed to extract text from file: {e}")
+            raise DocumentExtractionError(f"Failed to extract text from file: {file_path}")
 
     def extract_text(self, file_path: str) -> Dict[str, Any]:
         """
@@ -322,7 +376,12 @@ class UniversalDocumentExtractor:
 
         try:
             extractor = self.supported_extensions[file_extension]
-            result = extractor.extract_text(str(file_path))
+
+            # Handle text files differently (direct method call)
+            if file_extension == '.txt':
+                result = extractor(str(file_path))
+            else:
+                result = extractor.extract_text(str(file_path))
 
             # Add file type to metadata
             result['metadata']['file_type'] = file_extension
@@ -353,7 +412,8 @@ class UniversalDocumentExtractor:
             '.docx': 'Word Document',
             '.doc': 'Word Document (Legacy)',
             '.xlsx': 'Excel Spreadsheet',
-            '.xls': 'Excel Spreadsheet (Legacy)'
+            '.xls': 'Excel Spreadsheet (Legacy)',
+            '.txt': 'Text File'
         }
 
         return descriptions.get(file_extension, 'Unknown File Type')

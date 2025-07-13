@@ -35,6 +35,8 @@ from cv_evaluator.excel.excel_processor import ExcelProcessor, ExcelBatchProcess
 from cv_evaluator.ai.free_models import get_ai_response, list_available_models, auto_select_ai_model
 from cv_evaluator.pdf.extractor import UniversalDocumentExtractor
 from cv_evaluator.utils.exceptions import CVEvaluatorError
+from cv_evaluator.utils.i18n import i18n, Language
+from cv_evaluator.utils.api_config import api_config
 
 logger = logging.getLogger(__name__)
 
@@ -743,7 +745,10 @@ def display_participant_evaluation_results(participant_id: str, result, evaluato
 
 def ai_chat_interface():
     """AI chat interface for document analysis and chat."""
-    st.header("💬 AI Document Chat Assistant")
+    # Get current language for UI
+    current_lang = i18n.get_current_language()
+
+    st.header(f"💬 {i18n.get_text('document_chat_title')}")
     st.markdown("Upload a document (PDF, Word, or Excel) and chat with AI about its content")
 
     # Initialize session state for chat
@@ -755,46 +760,120 @@ def ai_chat_interface():
         st.session_state.document_extractor = UniversalDocumentExtractor()
     if 'evaluator' not in st.session_state:
         st.session_state.evaluator = None
+    if 'selected_language' not in st.session_state:
+        st.session_state.selected_language = Language.ENGLISH
 
-    # Model selection
-    with st.expander("🤖 AI Model Settings"):
-        available_models = list_available_models()
+    # Language and Model Settings
+    col1, col2 = st.columns(2)
 
-        if not any(available_models.values()):
-            st.warning("⚠️ No AI models are currently available")
-            st.markdown("""
-            **To enable AI chat features, set up one of these free options:**
+    with col1:
+        with st.expander(f"🌐 {i18n.get_text('select_language')}"):
+            # Language selection
+            language_options = {
+                "English": Language.ENGLISH,
+                "Français": Language.FRENCH,
+                "العربية": Language.ARABIC
+            }
 
-            1. **Ollama** (Recommended):
-               - Download: https://ollama.ai
-               - Install a model: `ollama pull llama2`
-               - Start server: `ollama serve`
+            selected_lang_name = st.selectbox(
+                i18n.get_text('select_language'),
+                list(language_options.keys()),
+                index=list(language_options.values()).index(st.session_state.selected_language)
+            )
 
-            2. **Hugging Face Transformers**:
-               - Install: `pip install transformers torch`
-               - Models download automatically
+            new_language = language_options[selected_lang_name]
+            if new_language != st.session_state.selected_language:
+                st.session_state.selected_language = new_language
+                i18n.set_language(new_language)
+                st.rerun()
 
-            3. **LocalAI or compatible API**:
-               - Set up at http://localhost:8080
-            """)
-        else:
-            # Show available models
-            st.write("**Available Models:**")
-            for model_name, is_available in available_models.items():
-                status = "✅" if is_available else "❌"
-                st.write(f"{status} {model_name}")
+    with col2:
+        with st.expander(f"🤖 {i18n.get_text('ai_model_settings')}"):
+            available_models = list_available_models()
 
-            # Auto-select best model
-            if st.button("🔄 Auto-select Best Model"):
-                selected = auto_select_ai_model()
-                if selected:
-                    st.success(f"Selected model: {selected}")
-                    st.rerun()
+            if not any(available_models.values()):
+                st.warning("⚠️ No AI models are currently available")
+
+                # Show API configuration status
+                st.write("**🔑 API Configuration Status:**")
+
+                enabled_providers = api_config.get_enabled_providers()
+                if enabled_providers:
+                    for provider, config in enabled_providers.items():
+                        st.success(f"✅ {provider.title()} - Configured")
                 else:
-                    st.error("No models available")
+                    st.info("No API providers configured")
+
+                # Show setup instructions
+                with st.expander("📋 Setup Instructions"):
+                    setup_option = st.selectbox(
+                        "Choose setup method:",
+                        ["Groq API (Fastest, Free)", "OpenAI API (Premium)", "Ollama (Local)", "Anthropic Claude", "Google Gemini"]
+                    )
+
+                    if setup_option.startswith("Groq"):
+                        st.markdown(api_config.get_setup_instructions('groq'))
+                        if st.button("Test Groq Connection"):
+                            test_api_connection('groq')
+                    elif setup_option.startswith("OpenAI"):
+                        st.markdown(api_config.get_setup_instructions('openai'))
+                        if st.button("Test OpenAI Connection"):
+                            test_api_connection('openai')
+                    elif setup_option.startswith("Ollama"):
+                        st.markdown(api_config.get_setup_instructions('ollama'))
+                        if st.button("Test Ollama Connection"):
+                            test_api_connection('ollama')
+                    elif setup_option.startswith("Anthropic"):
+                        st.markdown(api_config.get_setup_instructions('anthropic'))
+                        if st.button("Test Anthropic Connection"):
+                            test_api_connection('anthropic')
+                    elif setup_option.startswith("Google"):
+                        st.markdown(api_config.get_setup_instructions('google'))
+                        if st.button("Test Google Connection"):
+                            test_api_connection('google')
+            else:
+                # Categorize models by provider
+                model_categories = {
+                    "🚀 Premium API Models": ["openai_", "anthropic_", "google_"],
+                    "⚡ Fast Free API Models": ["groq_"],
+                    "🏠 Local Models (Ollama)": ["ollama_"],
+                    "🤗 Offline Models": ["hf_"],
+                    "🔧 Self-Hosted": ["localai", "textgen_webui", "lm_studio"]
+                }
+
+                for category, prefixes in model_categories.items():
+                    category_models = {}
+                    for model_name, is_available in available_models.items():
+                        if any(model_name.startswith(prefix) for prefix in prefixes):
+                            category_models[model_name] = is_available
+
+                    if category_models:
+                        st.write(f"**{category}:**")
+                        for model_name, is_available in category_models.items():
+                            status = "✅" if is_available else "❌"
+                            # Add provider info
+                            provider = model_name.split('_')[0]
+                            provider_status = "🔑" if api_config.is_provider_enabled(provider) else "🔒"
+                            st.write(f"{status} {provider_status} {model_name}")
+
+                # Show API configuration summary
+                st.write("**🔑 API Status:**")
+                for provider in ['groq', 'openai', 'anthropic', 'google', 'ollama']:
+                    is_enabled = api_config.is_provider_enabled(provider)
+                    status = "✅ Configured" if is_enabled else "❌ Not configured"
+                    st.write(f"• {provider.title()}: {status}")
+
+                # Auto-select best model
+                if st.button("🔄 Auto-select Best Model"):
+                    selected = auto_select_ai_model()
+                    if selected:
+                        st.success(f"Selected model: {selected}")
+                        st.rerun()
+                    else:
+                        st.error("No models available")
 
     # Document upload section
-    st.subheader("📄 Upload Document")
+    st.subheader(f"📄 {i18n.get_text('upload_document')}")
 
     # Get supported extensions from the extractor
     extractor = st.session_state.document_extractor
@@ -808,31 +887,31 @@ def ai_chat_interface():
     )
 
     # Display supported file types
-    with st.expander("ℹ️ Supported File Types"):
+    with st.expander(f"ℹ️ {i18n.get_text('supported_formats')}"):
         st.write("**Supported document formats:**")
-        st.write("• **PDF** (.pdf) - Portable Document Format")
-        st.write("• **Word** (.docx, .doc) - Microsoft Word documents")
-        st.write("• **Excel** (.xlsx, .xls) - Microsoft Excel spreadsheets")
-        st.write("• **Text** (.txt) - Plain text files")
+        st.write(f"• **{i18n.get_text('pdf_document')}** (.pdf) - Portable Document Format")
+        st.write(f"• **{i18n.get_text('word_document')}** (.docx, .doc) - Microsoft Word documents")
+        st.write(f"• **{i18n.get_text('excel_spreadsheet')}** (.xlsx, .xls) - Microsoft Excel spreadsheets")
+        st.write(f"• **{i18n.get_text('text_file')}** (.txt) - Plain text files")
 
     if uploaded_file is not None:
         # Process the uploaded document
-        with st.spinner("Processing document..."):
+        with st.spinner(i18n.get_text('processing')):
             success = process_uploaded_document_for_chat(uploaded_file)
 
             if success:
                 file_type = st.session_state.document_extractor.get_file_type_description(uploaded_file.name)
-                st.success(f"✅ {file_type} processed successfully: {uploaded_file.name}")
+                st.success(f"✅ {file_type} {i18n.get_text('success_processed')}: {uploaded_file.name}")
 
                 # Show document summary
-                with st.expander("📋 Document Summary"):
+                with st.expander(f"📋 {i18n.get_text('document_summary')}"):
                     display_document_summary_for_chat()
             else:
-                st.error("❌ Failed to process document")
+                st.error(f"❌ {i18n.get_text('error_processing')}")
 
     # Chat section
     if st.session_state.current_document_data:
-        st.subheader("💬 Chat about this Document")
+        st.subheader(f"💬 {i18n.get_text('chat_about_document')}")
 
         # Display chat history
         if st.session_state.chat_history:
@@ -846,74 +925,74 @@ def ai_chat_interface():
         # Quick question buttons based on document type
         file_type = st.session_state.current_document_data.get('metadata', {}).get('file_type', '').lower()
 
-        st.write("**Quick Questions:**")
+        st.write(f"**{i18n.get_text('quick_questions')}:**")
         col1, col2, col3 = st.columns(3)
 
         if file_type == '.pdf' or (uploaded_file and ('cv' in uploaded_file.name.lower() or 'resume' in uploaded_file.name.lower())):
             # CV/Resume specific questions
             with col1:
                 if st.button("🎯 Overall Assessment"):
-                    ask_question_about_document("What is your overall assessment of this candidate?")
+                    ask_question_about_document(i18n.get_text('cv_overall_assessment'))
             with col2:
                 if st.button("💼 Key Skills"):
-                    ask_question_about_document("What are the key skills mentioned in this document?")
+                    ask_question_about_document(i18n.get_text('cv_key_skills'))
             with col3:
                 if st.button("📈 Experience Level"):
-                    ask_question_about_document("What is the experience level of this candidate?")
+                    ask_question_about_document(i18n.get_text('cv_experience_level'))
         elif file_type in ['.xlsx', '.xls']:
             # Excel specific questions
             with col1:
                 if st.button("📊 Data Summary"):
-                    ask_question_about_document("Can you summarize the data in this spreadsheet?")
+                    ask_question_about_document(i18n.get_text('excel_data_summary'))
             with col2:
                 if st.button("🔢 Key Metrics"):
-                    ask_question_about_document("What are the key metrics or numbers in this data?")
+                    ask_question_about_document(i18n.get_text('excel_key_metrics'))
             with col3:
                 if st.button("📈 Trends"):
-                    ask_question_about_document("What trends or patterns can you identify in this data?")
+                    ask_question_about_document(i18n.get_text('excel_trends'))
         elif file_type in ['.docx', '.doc']:
             # Word document specific questions
             with col1:
                 if st.button("📝 Main Points"):
-                    ask_question_about_document("What are the main points discussed in this document?")
+                    ask_question_about_document(i18n.get_text('word_main_points'))
             with col2:
                 if st.button("🎯 Purpose"):
-                    ask_question_about_document("What is the purpose or objective of this document?")
+                    ask_question_about_document(i18n.get_text('word_purpose'))
             with col3:
                 if st.button("📋 Summary"):
-                    ask_question_about_document("Can you provide a summary of this document?")
+                    ask_question_about_document(i18n.get_text('word_summary'))
         else:
             # Generic questions
             with col1:
                 if st.button("📝 Summary"):
-                    ask_question_about_document("Can you summarize this document?")
+                    ask_question_about_document(i18n.get_text('generic_summary'))
             with col2:
                 if st.button("🎯 Key Points"):
-                    ask_question_about_document("What are the key points in this document?")
+                    ask_question_about_document(i18n.get_text('generic_key_points'))
             with col3:
                 if st.button("❓ Analysis"):
-                    ask_question_about_document("Can you analyze the content of this document?")
+                    ask_question_about_document(i18n.get_text('generic_analysis'))
 
         # Custom question input
         user_question = st.text_input(
-            "Ask a question about this document:",
+            i18n.get_text('ask_question'),
             placeholder="e.g., What is the main topic discussed in this document?",
             key="chat_input"
         )
 
         col1, col2 = st.columns([1, 4])
         with col1:
-            if st.button("Send", type="primary"):
+            if st.button(i18n.get_text('send'), type="primary"):
                 if user_question.strip():
                     ask_question_about_document(user_question)
                     st.rerun()
 
         with col2:
-            if st.button("🗑️ Clear Chat"):
+            if st.button(f"🗑️ {i18n.get_text('clear_chat')}"):
                 st.session_state.chat_history = []
                 st.rerun()
     else:
-        st.info("👆 Please upload a document to start chatting about its content")
+        st.info(f"👆 {i18n.get_text('upload_prompt')}")
 
 
 def process_uploaded_document_for_chat(uploaded_file) -> bool:
@@ -944,7 +1023,19 @@ def process_uploaded_document_for_chat(uploaded_file) -> bool:
             extraction_result = st.session_state.document_extractor.extract_text(tmp_file_path)
 
         if not extraction_result.get('text', '').strip():
-            st.error("No text could be extracted from the file")
+            # Check if there was an extraction error
+            error_msg = extraction_result.get('metadata', {}).get('error', 'Unknown error')
+            st.error(f"No text could be extracted from the file. Error: {error_msg}")
+
+            # Show troubleshooting tips
+            with st.expander("🔧 Troubleshooting Tips"):
+                st.write("**Common solutions:**")
+                st.write("• **PDF files**: Try a different PDF or check if it's password protected")
+                st.write("• **Scanned PDFs**: Use OCR software to convert to searchable PDF first")
+                st.write("• **Corrupted files**: Try re-saving or re-downloading the file")
+                st.write("• **Large files**: Try reducing file size or splitting into smaller files")
+                st.write("• **Special formats**: Convert to a standard format (PDF, DOCX, XLSX)")
+
             return False
 
         # Store document data
@@ -1182,9 +1273,13 @@ Content:
 {text_content}
 """
 
-        # Create prompt
+        # Create prompt with language instruction
+        language_instruction = i18n.get_ai_prompt_language_instruction()
+
         prompt = f"""
-You are a helpful document analysis assistant. Here's information about a document:
+You are a helpful document analysis assistant. {language_instruction}
+
+Here's information about a document:
 
 {context_header}
 
@@ -1505,6 +1600,55 @@ def get_mime_type(format: str) -> str:
         'word': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
     }
     return mime_types.get(format, 'application/octet-stream')
+
+
+def test_api_connection(provider: str):
+    """Test API connection for a provider."""
+    try:
+        config = api_config.get_config(provider)
+        if not config:
+            st.error(f"Provider '{provider}' not found")
+            return
+
+        is_valid, message = api_config.validate_config(provider)
+        if not is_valid:
+            st.error(f"Configuration invalid: {message}")
+            return
+
+        # Test with a simple prompt
+        test_prompt = "Hello, please respond with 'API connection successful'"
+
+        if provider == 'groq':
+            from cv_evaluator.ai.free_models import GroqModel
+            model = GroqModel()
+            response = model.generate_response(test_prompt, max_tokens=50)
+        elif provider == 'openai':
+            from cv_evaluator.ai.free_models import OpenAIModel
+            model = OpenAIModel()
+            response = model.generate_response(test_prompt, max_tokens=50)
+        elif provider == 'anthropic':
+            from cv_evaluator.ai.free_models import AnthropicModel
+            model = AnthropicModel()
+            response = model.generate_response(test_prompt, max_tokens=50)
+        elif provider == 'google':
+            from cv_evaluator.ai.free_models import GoogleModel
+            model = GoogleModel()
+            response = model.generate_response(test_prompt, max_tokens=50)
+        elif provider == 'ollama':
+            from cv_evaluator.ai.free_models import OllamaModel
+            model = OllamaModel()
+            response = model.generate_response(test_prompt, max_tokens=50)
+        else:
+            st.error(f"Test not implemented for provider: {provider}")
+            return
+
+        if "error" in response.lower():
+            st.error(f"❌ Connection failed: {response}")
+        else:
+            st.success(f"✅ Connection successful! Response: {response[:100]}...")
+
+    except Exception as e:
+        st.error(f"❌ Connection test failed: {e}")
 
 
 if __name__ == "__main__":
